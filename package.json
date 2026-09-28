@@ -1,0 +1,20 @@
+{
+  "name": "prize-savings",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "chain": "anvil",
+    "contracts:build": "forge build --root contracts",
+    "contracts:test": "forge test --root contracts",
+    "frontend:dev": "pnpm --filter @prize-savings/frontend dev",
+    "frontend:build": "pnpm --filter @prize-savings/frontend build",
+    "keeper:dev": "pnpm --filter @prize-savings/keeper dev",
+    "keeper:build": "pnpm --filter @prize-savings/keeper build",
+    "subgraph:codegen": "pnpm --filter @prize-savings/subgraph codegen",
+    "subgraph:build": "pnpm --filter @prize-savings/subgraph build"
+  }
+}
