@@ -1,7 +1,8 @@
-import { baseSepolia } from "wagmi/chains";
+import { foundry } from "wagmi/chains";
 
 /**
- * 目标链配置（脚手架占位）。
- * MVP 默认 Base Sepolia 测试网；后续按部署链调整，可结合 NEXT_PUBLIC_CHAIN_ID 覆盖。
+ * 目标链配置。
+ * MVP 默认本地 anvil（foundry chainId 31337，RPC http://127.0.0.1:8545）。
+ * 后续扩展其它链时改这里，并可结合 NEXT_PUBLIC_CHAIN_ID 动态选择。
  */
-export const chains = [baseSepolia] as const;
+export const chains = [foundry] as const;

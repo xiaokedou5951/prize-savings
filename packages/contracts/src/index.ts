@@ -1,5 +1,8 @@
-/**
- * 共享合约 SDK（脚手架占位）。
- * 后续 re-export：合约 ABI、部署地址、viem 封装、hooks。
- */
-export {};
+export { erc20Abi } from "./abis/Erc20";
+export { liquidationPairAbi } from "./abis/LiquidationPair";
+export { prizePoolAbi } from "./abis/PrizePool";
+export { prizeVaultAbi } from "./abis/PrizeVault";
+export { twabControllerAbi } from "./abis/TwabController";
+
+export { DEPLOYMENTS, getDeployment } from "./deployments";
+export type { Deployment } from "./deployments";
