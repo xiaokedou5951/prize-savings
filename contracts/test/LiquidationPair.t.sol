@@ -8,6 +8,7 @@ import { MockERC4626 } from "../src/mocks/MockERC4626.sol";
 import { SimpleTwabController } from "../src/TwabController/SimpleTwabController.sol";
 import { PrizeVault } from "../src/PrizeVault/PrizeVault.sol";
 import { LiquidationPair } from "../src/LiquidationPair/LiquidationPair.sol";
+import { ILiquidationPair } from "../src/interfaces/ILiquidationPair.sol";
 
 contract LiquidationPairTest is Test {
     MockERC20 internal asset; // USDC
@@ -83,9 +84,14 @@ contract LiquidationPairTest is Test {
         uint256 beforePool = prizeToken.balanceOf(PRIZE_POOL);
         uint256 beforeLiquid = asset.balanceOf(LIQUIDATOR);
 
+        // 满价时 amountIn == amountOut == available
+        vm.expectEmit(true, true, false, true, address(pair));
+        emit ILiquidationPair.Liquidation(LIQUIDATOR, LIQUIDATOR, available, available);
+
         vm.prank(LIQUIDATOR);
         uint256 amountIn = pair.swapExactAmountOut(available, LIQUIDATOR);
 
+        assertEq(amountIn, available, "full price at period start");
         assertGt(amountIn, 0);
         assertEq(prizeToken.balanceOf(PRIZE_POOL), beforePool + amountIn, "prize injected to pool");
         assertEq(asset.balanceOf(LIQUIDATOR), beforeLiquid + available, "yield delivered to liquidator");
@@ -102,10 +108,15 @@ contract LiquidationPairTest is Test {
         prizeToken.approve(address(pair), type(uint256).max);
 
         vm.warp(OFFSET);
+        // 实际清算量被上钳为 available；事件必须携带钳制后的值而非请求值
+        vm.expectEmit(true, true, false, true, address(pair));
+        emit ILiquidationPair.Liquidation(LIQUIDATOR, LIQUIDATOR, available, available);
+
         vm.prank(LIQUIDATOR);
         uint256 amountIn = pair.swapExactAmountOut(1_000_000e6, LIQUIDATOR); // 请求远超可清算量
 
         // 实际清算应以可用量封顶，且本金不被动
+        assertEq(amountIn, available, "amount in capped with amount out");
         assertLe(amountIn, 1000e18);
         assertEq(vault.liquidatableBalanceOf(), 0, "yield fully liquidated");
         assertGe(vault.totalAssets(), vault.totalSupply(), "no-loss after liquidation");

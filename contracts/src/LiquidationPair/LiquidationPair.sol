@@ -78,5 +78,7 @@ contract LiquidationPair is ILiquidationPair {
 
         tokenIn.safeTransferFrom(msg.sender, prizePool, amountIn);
         source.transferTokensOut(receiver, amountOut);
+
+        emit Liquidation(msg.sender, receiver, amountIn, amountOut);
     }
 }

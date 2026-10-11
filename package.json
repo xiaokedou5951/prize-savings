@@ -9,6 +9,7 @@
   "scripts": {
     "chain": "anvil",
     "contracts:build": "forge build --root contracts",
+    "contracts:abis": "forge build --root contracts && node scripts/gen-abis.mjs",
     "contracts:test": "forge test --root contracts",
     "frontend:dev": "pnpm --filter @prize-savings/frontend dev",
     "frontend:build": "pnpm --filter @prize-savings/frontend build",

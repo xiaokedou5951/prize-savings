@@ -5,6 +5,11 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IPrizeVault } from "./IPrizeVault.sol";
 
 interface ILiquidationPair {
+    /// @notice 一次清算完成：sender 支付 amountIn 奖币，receiver 收到 amountOut 个 yield。
+    /// @dev 奖币直转 PrizePool，yield 经 PrizeVault.transferTokensOut 转给 receiver。
+    ///      amountOut 可能因可清算余额上限而小于请求值；amountOut 为 0 时不抛事件。
+    event Liquidation(address indexed sender, address indexed receiver, uint256 amountIn, uint256 amountOut);
+
     function tokenIn() external view returns (IERC20); // 奖币
     function tokenOut() external view returns (IERC20); // 金库底层资产（yield）
     function source() external view returns (IPrizeVault); // PrizeVault
