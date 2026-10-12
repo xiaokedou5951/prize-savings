@@ -55,20 +55,37 @@ contract LiquidationPair is ILiquidationPair {
         return t + (periodLength - elapsed);
     }
 
+    /// @notice 计算当前荷兰拍瞬时价格（以 1e18 为定点精度）。
+    /// @dev 价格在每个周期开始时为 startPrice，随周期内剩余时间线性衰减，
+    ///      周期结束时降为 0：price = startPrice * (end - now) / periodLength。
+    ///      价格递减保证周期内 yield 迟早会被清算者买走。
+    /// @return 当前每单位 yield 的奖币价格（PRICE_SCALE = 1e18）
     function _price() internal view returns (uint256) {
         uint32 t = uint32(block.timestamp);
         uint32 end = _periodEnd(t);
         return startPrice * uint256(end - t) / uint256(periodLength);
     }
 
+    /// @notice 当前可供清算的 yield 数量，直接查询 PrizeVault。
     function liquidatableBalanceOf() external view override returns (uint256) {
         return source.liquidatableBalanceOf();
     }
 
+    /// @notice 给定买入数量 amountOut，按当前荷兰拍价格计算需支付的奖币数量 amountIn。
+    /// @dev 价格随周期内剩余时间线性衰减（见 _price），以 1e18 为定点精度：
+    ///      amountIn = amountOut * price / PRICE_SCALE。
+    ///      价格为当前区块的瞬时值，实际成交以 swap 交易所在区块的价格为准。
+    /// @param amountOut 想买走的 yield（底层资产）数量
+    /// @return 需支付的奖币数量
     function computeExactAmountIn(uint256 amountOut) public view override returns (uint256) {
         return amountOut * _price() / PRICE_SCALE;
     }
 
+    /// @notice 按当前价格买入可清算的 yield：奖币注入奖池，yield 转给 receiver。
+    /// @dev 若 amountOut 超过可清算余额则截断为全部可用余额；余额为 0 时直接返回 0。
+    /// @param amountOut 想买走的 yield 数量（可能被截断）
+    /// @param receiver yield 的接收地址
+    /// @return amountIn 实际支付的奖币数量
     function swapExactAmountOut(uint256 amountOut, address receiver) external override returns (uint256 amountIn) {
         uint256 available = source.liquidatableBalanceOf();
         if (amountOut > available) amountOut = available;
