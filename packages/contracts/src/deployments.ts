@@ -11,18 +11,26 @@ export interface Deployment {
 
 /**
  * 各链部署地址（SSOT）。
- * 31337（foundry/anvil）地址在本地部署后回填；部署脚本 Deploy.s.sol 会在 stdout 打印全部地址。
+ *
+ * 31337（anvil）：Deploy.s.sol 由 anvil 默认账户 0xf39F…2266 按固定顺序 CREATE
+ * 部署，nonce 0–6 决定地址，每次全新 anvil 上地址都相同：
+ *   nonce 0 USDC / 1 PRIZE / 2 MockYieldVault / 3 TwabController /
+ *   4 PrizePool / 5 PrizeVault / 6 LiquidationPair
+ *
+ * 注意：浏览器端不要依赖下面的 NEXT_PUBLIC_* env 覆盖——本包经 transpilePackages
+ * 编译且使用 `process.env[key]` 动态访问，打包器无法静态内联 NEXT_PUBLIC_* 变量。
+ * 浏览器侧以本 map 为准；env 仅在 Node 侧（SSR/脚本）生效。
  */
 export const DEPLOYMENTS: Record<number, Deployment> = {
   31337: {
     chainId: 31337,
-    usdc: "0x0000000000000000000000000000000000000000",
-    prizeToken: "0x0000000000000000000000000000000000000000",
-    yieldVault: "0x0000000000000000000000000000000000000000",
-    twabController: "0x0000000000000000000000000000000000000000",
-    prizePool: "0x0000000000000000000000000000000000000000",
-    prizeVault: "0x0000000000000000000000000000000000000000",
-    liquidationPair: "0x0000000000000000000000000000000000000000",
+    usdc: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    prizeToken: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    yieldVault: "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    twabController: "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+    prizePool: "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+    prizeVault: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
+    liquidationPair: "0x0165878A594ca255338adfa4d48449f69242Eb8F",
   },
 };
 
