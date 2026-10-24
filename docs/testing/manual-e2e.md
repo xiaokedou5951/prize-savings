@@ -191,16 +191,16 @@ cast call $TWAB  "totalSupply()(uint256)"  --rpc-url $RPC
 MockERC4626 通过直接接收底层资产捐赠抬升份额单价（`mockHarvest` 的等效操作）：
 
 ```bash
-# 捐赠 100,000,000,000,000 USDC（raw 1e20）到收益金库
-# 数量刻意放大：LiquidationPair 的 mock 不做 6/18 位小数归一化，
-# startPrice=1e18 按 raw 单位计价，放大后奖池才会出现可读的 PRIZE 数量
-cast send $USDC "mint(address,uint256)" $YIELD 100000000000000000000 \
+# 捐赠 100 USDC（raw 100e6）到收益金库，模拟计息
+cast send $USDC "mint(address,uint256)" $YIELD 100000000 \
   --rpc-url $RPC --private-key $PK0
 
 cast call $VAULT "liquidatableBalanceOf()(uint256)" --rpc-url $RPC
 ```
 
-预期：可清算余额 ≈ `100000000000000000000`（捐赠 raw 数，捐赠额超出本金的部分）；此时 `totalAssets = 捐赠额 + 1000e6 ≥ totalSupply(1000e6)`，零损失仍成立。
+预期：可清算余额 ≈ `100000000`（100 USDC raw，捐赠额超出本金的部分）；此时 `totalAssets = 1000e6 + 100e6 ≥ totalSupply(1000e6)`，零损失仍成立。
+
+> 清算定价已按 USDC(6) / PRIZE(18) 的 decimals 归一，满价时 **1 USDC 收益 ≈ 1 PRIZE**，无需放大数量。
 
 ### 6.2 清算者买入收益（荷兰拍）
 
@@ -223,10 +223,10 @@ cast call $USDC   "balanceOf(address)(uint256)" $LIQ   --rpc-url $RPC
 cast call $VAULT  "liquidatableBalanceOf()(uint256)"  --rpc-url $RPC
 ```
 
-预期（周期刚开始，价格 ≈ startPrice 1e18）：
+预期（周期刚开始，价格 ≈ startPrice 1e18，decimals 已归一）：
 
 - 奖池 PRIZE 余额 ≈ `100000000000000000000`（约 **100 PRIZE**，随耗时略低）；
-- 清算者收到等量 raw 的 USDC 收益；
+- 清算者收到 ≈ 100 USDC 收益；
 - 可清算余额变为 `0`；
 - 交易回执含 `Liquidation(sender,receiver,amountIn,amountOut)` 事件。
 
@@ -345,6 +345,5 @@ cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER1 1 1 -
 | `/account` 刚存款后看不到可领奖金 | 需要先完成 §6（清算 + 到点开奖）；TWAB 只覆盖存款之后的时间窗口，这是防闪电存款的预期行为 |
 | `awardDraw` revert `PrizePoolDrawNotReady` | 时间未到：`nextDrawStart() = 部署时间戳 + 1 天 × 期数`，先 `evm_increaseTime` 再 `evm_mine` |
 | `awardDraw` revert `PrizePoolOnlyDrawManager` | 私钥用错；初始 drawManager 是部署者 #0，换人需先由 owner 调 `setDrawManager` |
-| 奖池金额显示为 `0` | mock 的清算价格按 raw 单位计价，捐赠/清算数量级太小（< 1e-6 PRIZE）时前端 6 位小数格式化后不可见；按 §6.1 的放大数量执行 |
 | 荷兰拍价格与预期不符 | `price = startPrice × (周期结束 − now) / 周期长度`，周期内随时间衰减；部署后尽快清算即接近满价 |
 | 前端 BigInt/构建类报错 | Next 16 下禁用 BigInt 字面量（`0n`），须用 `BigInt(...)`；属代码问题，不应在联调中出现，出现即回归失败 |

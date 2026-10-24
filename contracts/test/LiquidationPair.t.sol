@@ -56,15 +56,16 @@ contract LiquidationPairTest is Test {
     function test_price_decreases_over_time() public {
         uint32 t = OFFSET; // 周期起点
         vm.warp(t);
-        assertEq(pair.computeExactAmountIn(1e6), 1e6, "full price at start");
+        // 满价：1 USDC（1e6 raw）收益 → 1 PRIZE（1e18 raw）
+        assertEq(pair.computeExactAmountIn(1e6), 1e18, "full price at start");
 
         vm.warp(t + PERIOD / 2);
         // 半程：价格 = startPrice * 0.5
-        assertEq(pair.computeExactAmountIn(1e6), 5e5, "half price midway");
+        assertEq(pair.computeExactAmountIn(1e6), 5e17, "half price midway");
 
         vm.warp(t + PERIOD - 1);
-        // 周期末：价格趋近于 0（远低于起点价 1e6）
-        assertLt(pair.computeExactAmountIn(1e6), 1e6, "price near zero at period end");
+        // 周期末：价格趋近于 0（远低于起点价 1e18）
+        assertLt(pair.computeExactAmountIn(1e6), 1e18, "price near zero at period end");
     }
 
     function test_swap_injects_prize_and_grants_yield() public {
@@ -80,18 +81,19 @@ contract LiquidationPairTest is Test {
         vm.prank(LIQUIDATOR);
         prizeToken.approve(address(pair), type(uint256).max);
 
-        vm.warp(OFFSET); // 满价，1 USDC yield = 1 奖币
+        vm.warp(OFFSET); // 满价，1 USDC yield = 1 PRIZE（decimals 已归一）
         uint256 beforePool = prizeToken.balanceOf(PRIZE_POOL);
         uint256 beforeLiquid = asset.balanceOf(LIQUIDATOR);
 
-        // 满价时 amountIn == amountOut == available
+        // 满价时 amountIn = available * 1e12（USDC 6 位 → PRIZE 18 位）
+        uint256 expectedIn = available * 1e12;
         vm.expectEmit(true, true, false, true, address(pair));
-        emit ILiquidationPair.Liquidation(LIQUIDATOR, LIQUIDATOR, available, available);
+        emit ILiquidationPair.Liquidation(LIQUIDATOR, LIQUIDATOR, expectedIn, available);
 
         vm.prank(LIQUIDATOR);
         uint256 amountIn = pair.swapExactAmountOut(available, LIQUIDATOR);
 
-        assertEq(amountIn, available, "full price at period start");
+        assertEq(amountIn, expectedIn, "full price at period start");
         assertGt(amountIn, 0);
         assertEq(prizeToken.balanceOf(PRIZE_POOL), beforePool + amountIn, "prize injected to pool");
         assertEq(asset.balanceOf(LIQUIDATOR), beforeLiquid + available, "yield delivered to liquidator");
@@ -109,14 +111,15 @@ contract LiquidationPairTest is Test {
 
         vm.warp(OFFSET);
         // 实际清算量被上钳为 available；事件必须携带钳制后的值而非请求值
+        uint256 expectedIn = available * 1e12;
         vm.expectEmit(true, true, false, true, address(pair));
-        emit ILiquidationPair.Liquidation(LIQUIDATOR, LIQUIDATOR, available, available);
+        emit ILiquidationPair.Liquidation(LIQUIDATOR, LIQUIDATOR, expectedIn, available);
 
         vm.prank(LIQUIDATOR);
         uint256 amountIn = pair.swapExactAmountOut(1_000_000e6, LIQUIDATOR); // 请求远超可清算量
 
         // 实际清算应以可用量封顶，且本金不被动
-        assertEq(amountIn, available, "amount in capped with amount out");
+        assertEq(amountIn, expectedIn, "amount in capped with amount out");
         assertLe(amountIn, 1000e18);
         assertEq(vault.liquidatableBalanceOf(), 0, "yield fully liquidated");
         assertGe(vault.totalAssets(), vault.totalSupply(), "no-loss after liquidation");

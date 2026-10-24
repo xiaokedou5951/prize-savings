@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { IPrizeVault } from "../interfaces/IPrizeVault.sol";
@@ -22,6 +23,8 @@ contract LiquidationPair is ILiquidationPair {
     uint32 public immutable periodLength;
     uint32 public immutable periodOffset;
     uint256 public immutable startPrice;
+    uint8 public immutable tokenInDecimals;
+    uint8 public immutable tokenOutDecimals;
 
     error LiquidationPairInvalidConstructor();
 
@@ -46,6 +49,8 @@ contract LiquidationPair is ILiquidationPair {
         periodOffset = periodOffset_;
         startPrice = startPrice_;
         prizePool = prizePool_;
+        tokenInDecimals = IERC20Metadata(address(tokenIn_)).decimals();
+        tokenOutDecimals = IERC20Metadata(address(tokenOut_)).decimals();
     }
 
     /// @notice 当前时段结束时间（clamp 到下一个周期边界）。
@@ -59,7 +64,7 @@ contract LiquidationPair is ILiquidationPair {
     /// @dev 价格在每个周期开始时为 startPrice，随周期内剩余时间线性衰减，
     ///      周期结束时降为 0：price = startPrice * (end - now) / periodLength。
     ///      价格递减保证周期内 yield 迟早会被清算者买走。
-    /// @return 当前每单位 yield 的奖币价格（PRICE_SCALE = 1e18）
+    /// @return 当前每 1 单位 tokenOut 值多少 tokenIn（PRICE_SCALE = 1e18）
     function _price() internal view returns (uint256) {
         uint32 t = uint32(block.timestamp);
         uint32 end = _periodEnd(t);
@@ -71,14 +76,16 @@ contract LiquidationPair is ILiquidationPair {
         return source.liquidatableBalanceOf();
     }
 
-    /// @notice 给定买入数量 amountOut，按当前荷兰拍价格计算需支付的奖币数量 amountIn。
-    /// @dev 价格随周期内剩余时间线性衰减（见 _price），以 1e18 为定点精度：
-    ///      amountIn = amountOut * price / PRICE_SCALE。
-    ///      价格为当前区块的瞬时值，实际成交以 swap 交易所在区块的价格为准。
+    /// @notice 给定买入数量 amountOut（tokenOut，raw 数量），按当前荷兰拍价格计算需支付的奖币数量 amountIn（tokenIn，raw 数量）。
+    /// @dev 价格随周期内剩余时间线性衰减（见 _price），以 1e18 为定点精度。
+    ///      因 tokenIn/tokenOut 通常 decimals 不同（如 PRIZE 18 / USDC 6），
+    ///      需先把 amountOut 按各自 decimals 归一到同一量纲再定价：
+    ///      amountIn = amountOut * price * 10^tokenInDecimals / (PRICE_SCALE * 10^tokenOutDecimals)。
+    ///      满价（price = PRICE_SCALE）时：1 个 tokenOut 单位收益 = 1 个 tokenIn 单位奖币。
     /// @param amountOut 想买走的 yield（底层资产）数量
     /// @return 需支付的奖币数量
     function computeExactAmountIn(uint256 amountOut) public view override returns (uint256) {
-        return amountOut * _price() / PRICE_SCALE;
+        return amountOut * _price() * 10 ** tokenInDecimals / (PRICE_SCALE * 10 ** tokenOutDecimals);
     }
 
     /// @notice 按当前价格买入可清算的 yield：奖币注入奖池，yield 转给 receiver。
