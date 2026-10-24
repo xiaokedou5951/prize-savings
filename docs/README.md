@@ -11,6 +11,7 @@
 | 合约职责、开奖状态机、三条不变量 | [architecture/contracts.md](./architecture/contracts.md) |
 | ABI/地址/事件如何在模块间共享 | [architecture/module-contracts.md](./architecture/module-contracts.md) |
 | 本地链部署、地址与环境变量 | [architecture/deployment.md](./architecture/deployment.md) |
+| 本地端到端手工联调怎么做（存/取/清算/开奖/领奖） | [testing/manual-e2e.md](./testing/manual-e2e.md) |
 | 不可逆决策的来龙去脉 | [decisions/](./decisions/) |
 
 ## 模块级文档（就近存放）

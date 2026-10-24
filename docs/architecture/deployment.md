@@ -13,11 +13,20 @@
 
 ## 本地部署步骤
 
-```bash
-# 1. 起链（根目录）
-pnpm chain                                   # anvil，默认 8545
+推荐一条命令完成「部署 + 回填前端地址」（[scripts/deploy-local.sh](../../scripts/deploy-local.sh)）：
 
-# 2. 编译 + 部署（另开终端；--broadcast 实际发交易）
+```bash
+# 终端 1：起链（含 Multicall3 注入），保持常驻
+pnpm chain
+
+# 终端 2：部署并自动把 7 个地址写入 frontend/.env.local（保留已填的 WalletConnect projectId）
+pnpm deploy:local
+```
+
+脚本内部等价于执行下列手工步骤；需要自定义时可直接照做：
+
+```bash
+# 编译 + 部署（--broadcast 实际发交易）
 DEPLOYER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
 TWAB_MODE=simple \
   forge script script/Deploy.s.sol --root contracts --rpc-url local --broadcast
@@ -32,10 +41,10 @@ TWAB_MODE=simple \
 
 ## 已部署地址（SSOT）
 
-权威地址表在代码中：[packages/contracts/src/deployments.ts](../../packages/contracts/src/deployments.ts) 的 `DEPLOYMENTS[31337]`。**当前为零地址占位**，本地部署后二选一回填：
+权威地址表在代码中：[packages/contracts/src/deployments.ts](../../packages/contracts/src/deployments.ts) 的 `DEPLOYMENTS[31337]`。`pnpm deploy:local` 自动写入 `frontend/.env.local`（默认路径，不入库）。需要共享给团队或换种方式时也可以：
 
-1. 直接把 stdout 地址写入 `DEPLOYMENTS[31337]`（随仓库共享）；或
-2. 复制 [frontend/.env.example](../../frontend/.env.example) 为 `frontend/.env.local`，用 `NEXT_PUBLIC_*` 变量覆盖（个人本地、不入库）。
+1. 把 stdout 地址写入 `DEPLOYMENTS[31337]`（随仓库共享）；或
+2. 手动复制 [frontend/.env.example](../../frontend/.env.example) 为 `frontend/.env.local` 填写（个人本地、不入库）。
 
 > 安全约束：`.env*` 不入库；`PRIVATE_KEY` 只允许存在于本地环境。
 

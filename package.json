@@ -8,6 +8,7 @@
   },
   "scripts": {
     "chain": "bash scripts/start-anvil.sh",
+    "deploy:local": "bash scripts/deploy-local.sh",
     "contracts:build": "forge build --root contracts",
     "contracts:abis": "forge build --root contracts && node scripts/gen-abis.mjs",
     "contracts:test": "forge test --root contracts",
