@@ -97,7 +97,9 @@ pnpm deploy:local
 export RPC=http://127.0.0.1:8545
 export PK0=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 export PK1=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+export PK2=0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a
 export USER1=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+export USER2=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
 export LIQ=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 
 # 从 .env.local 自动读取 7 个地址
@@ -112,6 +114,10 @@ PAIR=$(grep '^NEXT_PUBLIC_LIQUIDATION_PAIR=' frontend/.env.local | cut -d= -f2)
 # 给浏览器用户铸 1000 USDC（6 decimals）
 cast send $USDC "mint(address,uint256)" $USER1 1000000000 \
   --rpc-url $RPC --private-key $PK1
+
+# 可选：给第二用户（#2，用于 §7 双账户 TWAB 验证）也铸 1000 USDC
+cast send $USDC "mint(address,uint256)" $USER2 1000000000 \
+  --rpc-url $RPC --private-key $PK2
 ```
 
 ### 4.4 钱包与前端（终端 3）
@@ -309,14 +315,27 @@ cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER1 1 1 -
 3. #2 铸 1000 USDC 并存入 1000。
 4. 用 #0 完成捐赠+清算（此时荷兰拍价格 ≈ 0.5e18，注入奖池的 PRIZE 约为满价一半，属预期）。
 5. 再快进 43200 秒后由 #0 `awardDraw`。
-6. 对比：
+6. 对比各档可领金额（建议看次级档/Canary 档，Grand 档只有 1 个 slot 是 0/1 二值）：
 
    ```bash
-   cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 0 1 --rpc-url $RPC
-   cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC 0 1 --rpc-url $RPC
+   # Grand 档（count=1）：单用户要么 0 要么整份，由随机数决定，不呈现 2:1
+   cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER1 0 1 --rpc-url $RPC
+   cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER2 0 1 --rpc-url $RPC
+
+   # 次级档（count=4）/ Canary 档（count=100）：slot 多，比例平滑
+   cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER1 1 1 --rpc-url $RPC
+   cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER2 1 1 --rpc-url $RPC
+   cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER1 2 1 --rpc-url $RPC
+   cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER2 2 1 --rpc-url $RPC
    ```
 
-预期：#1 的 Grand Prize claimable ≈ #2 的 **2 倍**（同额本金，#1 覆盖全窗口、#2 仅覆盖后半窗口）。
+预期（TWAB 权重 #1:#2 = 2:1）：
+
+- **Grand 档（count=1）**：对单个用户是 0 或整份的二值结果（`slots = floor(userTwab/totalTwab)` 对两人都为 0，再按余数概率补 1）。#1 有 2/3 概率中、#2 有 1/3 概率中；**#1 为 0 是正常现象**，说明本次随机数未命中 #1 的余数阈值。
+- **次级档（count=4）**：#1 得 2~3 份、#2 得 1~2 份，比值约 **2:1**。
+- **Canary 档（count=100）**：#1 得 66~67 份、#2 得 33~34 份，比值稳定 **2:1**，最直观。
+
+> 结论：时间加权生效——同额本金下，覆盖全窗口的 #1 权重恰为仅覆盖后半窗口的 #2 的 2 倍；Grand 档因只有 1 个 slot 呈现离散中奖，多 slot 档位才体现连续比例。
 
 ---
 
