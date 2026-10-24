@@ -142,7 +142,7 @@ cast send $USDC "mint(address,uint256)" $USER1 1000000000 \
 3. 点击后依次确认两笔钱包弹窗：先 `approve`（状态「授权中…」），再 `deposit`（「存款中…」）。
 4. 预期：提示「存款成功」；「我的份额/可赎回」变为 `1000`；USDC 余额变为 `0`。
 
-### TC-VAULT-02 二次存款（无需再授权）
+### TC-VAULT-02 二次存款（仍需授权）
 
 1. 再铸 100 USDC：
 
@@ -151,7 +151,9 @@ cast send $USDC "mint(address,uint256)" $USER1 1000000000 \
      --rpc-url $RPC --private-key $PK1
    ```
 
-2. 输入 `100`，按钮文案直接是 **「存款」**（allowance 已足够，无 approve 弹窗），确认后份额变为 `1100`。
+2. 输入 `100`，按钮文案为 **「授权并存款」**（首次 approve 用的是精确额度 `1000`，deposit 后 allowance 已归零，故需重新授权）。依次确认 approve + deposit 两笔弹窗后，份额变为 `1100`。
+
+   > 当前前端 approve 采用「精确额度」而非 `type(uint256).max`，每次存款都会消耗对应 allowance，因此二次及以后存款均需重新授权。若改为无限授权可省掉后续 approve 步骤。
 
 ### TC-VAULT-03 部分赎回
 
@@ -208,7 +210,8 @@ cast call $VAULT "liquidatableBalanceOf()(uint256)" --rpc-url $RPC
 # 清算者（#0）准备 1000 PRIZE 并授权 Pair
 cast send $PRIZE "mint(address,uint256)" $LIQ 1000000000000000000000 \
   --rpc-url $RPC --private-key $PK0
-cast send $PRIZE "approve(address,uint256)" $PAIR "type(uint256).max" \
+MAX=$(cast max-uint)
+cast send $PRIZE "approve(address,uint256)" $PAIR $MAX \
   --rpc-url $RPC --private-key $PK0
 
 # 按链上实际可清算量全额买入
