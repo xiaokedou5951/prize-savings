@@ -22,4 +22,3 @@ build/
 .DS_Store
 *.log
 
-tmp/
