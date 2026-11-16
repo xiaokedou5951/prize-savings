@@ -29,7 +29,9 @@ flowchart LR
 | `liquidationPairAbi` | `out/LiquidationPair.sol/LiquidationPair.json` |
 | `erc20Abi` | 手写最小集（`approve/allowance/balanceOf/decimals/symbol`） |
 
-**地址 SSOT**：[deployments.ts](../../packages/contracts/src/deployments.ts) 的 `DEPLOYMENTS[chainId]` 为缺省值，`getDeployment(chainId)` 允许 `NEXT_PUBLIC_*` 环境变量逐项覆盖（含正则校验）。31337 当前为零地址占位，本地部署后回填。
+**有意不导出的 ABI**：`AaveYieldVault`（收益源适配器）不在 `gen-abis.mjs` 生成目标内——它只被 PrizeVault 以 `IERC4626` 语义消费，前端/keeper 均不直接调用；且适配器仅在无 Aave StataToken 的市场作为部署期回退存在（[ADR-0005](../decisions/ADR-0005-yield-source-stata-first.md)），ABI 不进 SDK 可避免消费方对可选组件产生依赖。
+
+**地址 SSOT**：[deployments.ts](../../packages/contracts/src/deployments.ts) 的 `DEPLOYMENTS[chainId]` 为缺省值，`getDeployment(chainId)` 允许 `NEXT_PUBLIC_*` 环境变量逐项覆盖（含正则校验）。31337 为零配置本地部署的固定地址；84532 留待首次真实部署后回填（回填流程见 [deployment.md](deployment.md) 的测试网 runbook）。
 
 ## 2. 事件 → subgraph 映射
 
@@ -82,4 +84,4 @@ keeper 不直接触碰 PrizeVault 的资金路径，只经由 `LiquidationPair` 
 
 - 只读批量请求统一走 wagmi `useReadContracts`（multicall），写交易走 `useWriteContract` + `waitForTransactionReceipt`，hooks 清单见 [frontend/ARCHITECTURE.md](../../frontend/ARCHITECTURE.md)。
 - viem 类型映射：`uint8/uint32 → number`、`uint256/address` 之外的动态类型按 viem 默认；所有 `uint256` 以 `bigint` 处理，UI 层经 [format.ts](../../frontend/src/lib/format.ts) 格式化。
-- 链与地址：`chains = [foundry]`（31337），地址解析经 `useDeployment()`（env 覆盖 → `DEPLOYMENTS`），零地址占位时各查询 hook 整体 `enabled: false`。
+- 链与地址：`chains = [foundry, baseSepolia]`，`NEXT_PUBLIC_CHAIN_ID` 选择默认链（31337 / 84532，见 [chains.ts](../../frontend/src/lib/config/chains.ts)）；地址解析经 `useDeployment()`（env 覆盖 → `DEPLOYMENTS`），零地址占位或 `DEPLOYMENTS[84532]` 未回填时各查询 hook 整体 `enabled: false`。

@@ -8,14 +8,14 @@ M0 闭环合约（Foundry / Solidity 0.8.24）：存款 → 底层计息 → 收
 src/
 ├── interfaces/          # ITwabController / IPrizeVault / IPrizePool / ILiquidationPair
 │                        # 上游契约：TS ABI 从实现合约产物提取，接口是模块边界
-├── PrizeVault/          # PrizeVault.sol + TwabERC20.sol（份额路由层）
+├── PrizeVault/          # PrizeVault.sol + TwabERC20.sol（份额路由层）+ AaveYieldVault.sol（收益源适配器）
 ├── PrizePool/           # PrizePool.sol（开奖/分级/领取，3 档硬编码 pure 配置）
 ├── TwabController/      # TwabController(抽象) + Simple/Observation 两实现
 ├── LiquidationPair/     # 线性降价清算
 ├── libraries/           # TwabLibSimple（追加扫描）/ ObservationLib+TwabLibObservation（环/二分）
 ├── Claimer/ VaultFactory/ RngRelayAuction/   # 空目录占位，M1/M2 再填
-└── mocks/               # MockERC20 / MockERC4626（仅本地与测试）
-script/Deploy.s.sol      # 本地一键部署 + 组装授权（TWAB_MODE 切 TWAB 实现）
+└── mocks/               # MockERC20 / MockERC4626 / MockAavePool+MockAToken（仅本地与测试）
+script/Deploy.s.sol      # 一键部署 + 组装授权（TWAB_MODE 切实现；USDC/奖币/收益源按环境变量三档回退）
 test/                     # 单元 / fuzz 不变量 / 端到端
 ```
 
@@ -24,7 +24,8 @@ test/                     # 单元 / fuzz 不变量 / 端到端
 - **TWAB 算法与权限分层**：[TwabController.sol](src/TwabController/TwabController.sol) 只留 `onlyVault` 权限与参数校验，存储/算法全部在子类。两种实现对同一接口结果等价，行为测试共用 [TwabControllerBehavior.t.sol](test/TwabControllerBehavior.t.sol)（抽象基类），两个 12 行的子类测试各跑一遍，防分叉。
 - **份额不落地存储**：PrizeVault 继承的 ERC20 余额函数全部 override 路由到 TwabController，避免"vault 余额账"与"TWAB 账"双写漂移（对应不变量 2）。
 - **收益路径**：`_pullAssets` 先花合约 loose 余额、不足再从 yieldVault redeem；`liquidatableBalanceOf` 天然只暴露超额资产，零损失不需要额外记账。
-- **Mock 边界**：`MockERC4626.mockHarvest` 以捐赠抬升份额单价模拟计息，不模拟真实 DeFi 风险；接真实收益源是 PRD M0 集成阶段任务。
+- **收益源三档回退**：现成 ERC-4626（主路径 Aave 官方 StataToken）> 自研 [AaveYieldVault](src/PrizeVault/AaveYieldVault.sol) 适配器（无 stata 市场的回退）> MockERC4626（仅本地链）。适配器把 aToken 1:1 视作本金（`totalAssets` 即 aToken 余额），零份额存款 revert + 部署期 seed 首充双防护对抗通胀攻击；取舍依据与接受的风险见 [ADR-0005](../docs/decisions/ADR-0005-yield-source-stata-first.md)。
+- **Mock 边界**：`MockERC4626.mockHarvest` 以捐赠抬升份额单价模拟计息，不模拟真实 DeFi 风险；真实收益源接入后 Mock 仅保留给本地链与单元测试。`MockAavePool`/`MockAToken` 复刻 Aave pool→aToken 的铸/销权限模型（仅 pool 可铸），用于适配器单测与本地部署验证。
 
 ## 测试布局
 
@@ -37,8 +38,10 @@ test/                     # 单元 / fuzz 不变量 / 端到端
 | [LiquidationPair.t.sol](test/LiquidationPair.t.sol) | 线性降价、奖币入池/yield 出金、可清算额上钳、`Liquidation` 事件断言（含钳制值） |
 | [TwabControllerBehavior.t.sol](test/TwabControllerBehavior.t.sol) | 时间加权、历史点查询、仅 vault 可写、零地址/非法区间 |
 | [ObservationTwabController.t.sol](test/ObservationTwabController.t.sol) | 大量 checkpoint 环形覆盖 + 二分正确性 |
+| [AaveYieldVault.t.sol](test/AaveYieldVault.t.sol) | 适配器：1:1 存赎 roundtrip、计息按份额均摊、maxRedeem/allowance 语义、通胀攻击防护（无 seed 受害者 revert / 有 seed 损失 ≤1‰）、构造器 aToken 市场校验 |
+| [ForkStataYield.t.sol](test/ForkStataYield.t.sol) | Base 主网 fork：StataToken 存赎、Aave 惰性计息（warp 后 liquidatable 不变、poke 后 >0）；未设 `BASE_RPC_URL` 时自动 skip |
 
-> 待补：以 Foundry `invariant` handler 做真正的状态机 fuzz（当前为 fuzz 单测形态）；fork 测试真实 ERC-4626。
+> 待补：以 Foundry `invariant` handler 做真正的状态机 fuzz（当前为 fuzz 单测形态）。fork 测试需 `BASE_RPC_URL` 环境变量（主网 RPC），默认套件中该文件 skip，属预期。
 
 ## 常用命令
 
