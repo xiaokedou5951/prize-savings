@@ -17,9 +17,9 @@ export interface Deployment {
  *   nonce 0 USDC / 1 PRIZE / 2 MockYieldVault / 3 TwabController /
  *   4 PrizePool / 5 PrizeVault / 6 LiquidationPair
  *
- * 注意：浏览器端不要依赖下面的 NEXT_PUBLIC_* env 覆盖——本包经 transpilePackages
- * 编译且使用 `process.env[key]` 动态访问，打包器无法静态内联 NEXT_PUBLIC_* 变量。
- * 浏览器侧以本 map 为准；env 仅在 Node 侧（SSR/脚本）生效。
+ * 未在 map 中登记的链（如 84532 Base Sepolia / 本地 fork）完全由 NEXT_PUBLIC_*
+ * 环境变量提供地址。env 用静态字面量访问（process.env.NEXT_PUBLIC_FOO），
+ * Next.js 可在浏览器端内联；动态 process.env[key] 不会被内联。
  */
 export const DEPLOYMENTS: Record<number, Deployment> = {
   31337: {
@@ -34,39 +34,62 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
   },
 };
 
-const ENV_KEYS = {
-  usdc: "NEXT_PUBLIC_USDC",
-  prizeToken: "NEXT_PUBLIC_PRIZE_TOKEN",
-  yieldVault: "NEXT_PUBLIC_YIELD_VAULT",
-  twabController: "NEXT_PUBLIC_TWAB_CONTROLLER",
-  prizePool: "NEXT_PUBLIC_PRIZE_POOL",
-  prizeVault: "NEXT_PUBLIC_PRIZE_VAULT",
-  liquidationPair: "NEXT_PUBLIC_LIQUIDATION_PAIR",
-} as const;
-
-function envAddress(key: string): `0x${string}` | undefined {
-  const v = process.env[key];
-  if (v && /^0x[0-9a-fA-F]{40}$/.test(v)) return v as `0x${string}`;
+function envAddress(value: string | undefined): `0x${string}` | undefined {
+  if (value && /^0x[0-9a-fA-F]{40}$/.test(value)) return value as `0x${string}`;
   return undefined;
 }
 
+/** 静态读取 NEXT_PUBLIC_*，确保浏览器端被 Next.js 内联。 */
+function envDeployment(): Partial<Deployment> {
+  return {
+    usdc: envAddress(process.env.NEXT_PUBLIC_USDC),
+    prizeToken: envAddress(process.env.NEXT_PUBLIC_PRIZE_TOKEN),
+    yieldVault: envAddress(process.env.NEXT_PUBLIC_YIELD_VAULT),
+    twabController: envAddress(process.env.NEXT_PUBLIC_TWAB_CONTROLLER),
+    prizePool: envAddress(process.env.NEXT_PUBLIC_PRIZE_POOL),
+    prizeVault: envAddress(process.env.NEXT_PUBLIC_PRIZE_VAULT),
+    liquidationPair: envAddress(process.env.NEXT_PUBLIC_LIQUIDATION_PAIR),
+  };
+}
+
 /**
- * 解析当前链的部署地址：优先 NEXT_PUBLIC_* 环境变量覆盖，缺省回落 DEPLOYMENTS[chainId]。
- * 未知链或地址未配置时抛错（前端应在此之前用 useChainId 判断）。
+ * 解析当前链的部署地址：
+ * - 已知链（DEPLOYMENTS 中有登记）：env 覆盖优先，缺省回落 map 值。
+ * - 未知链（如 84532）：完全由 env 提供，缺任意字段则抛错（前端 catch 后显示「未配置」）。
  */
 export function getDeployment(chainId: number): Deployment {
   const base = DEPLOYMENTS[chainId];
+  const env = envDeployment();
+
   if (!base) {
-    throw new Error(`No deployment configured for chainId ${chainId}`);
+    const missing = (Object.keys(env) as (keyof Deployment)[]).filter(
+      (k) => k !== "chainId" && !env[k],
+    );
+    if (missing.length) {
+      throw new Error(
+        `No deployment for chainId ${chainId}; missing env: ${missing.join(", ")}`,
+      );
+    }
+    return {
+      chainId,
+      usdc: env.usdc!,
+      prizeToken: env.prizeToken!,
+      yieldVault: env.yieldVault!,
+      twabController: env.twabController!,
+      prizePool: env.prizePool!,
+      prizeVault: env.prizeVault!,
+      liquidationPair: env.liquidationPair!,
+    };
   }
+
   return {
     chainId,
-    usdc: envAddress(ENV_KEYS.usdc) ?? base.usdc,
-    prizeToken: envAddress(ENV_KEYS.prizeToken) ?? base.prizeToken,
-    yieldVault: envAddress(ENV_KEYS.yieldVault) ?? base.yieldVault,
-    twabController: envAddress(ENV_KEYS.twabController) ?? base.twabController,
-    prizePool: envAddress(ENV_KEYS.prizePool) ?? base.prizePool,
-    prizeVault: envAddress(ENV_KEYS.prizeVault) ?? base.prizeVault,
-    liquidationPair: envAddress(ENV_KEYS.liquidationPair) ?? base.liquidationPair,
+    usdc: env.usdc ?? base.usdc,
+    prizeToken: env.prizeToken ?? base.prizeToken,
+    yieldVault: env.yieldVault ?? base.yieldVault,
+    twabController: env.twabController ?? base.twabController,
+    prizePool: env.prizePool ?? base.prizePool,
+    prizeVault: env.prizeVault ?? base.prizeVault,
+    liquidationPair: env.liquidationPair ?? base.liquidationPair,
   };
 }

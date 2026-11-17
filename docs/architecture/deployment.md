@@ -92,17 +92,18 @@ YIELD_VAULT_ADDRESS=0xf430cb6E2b85f99222fBFA6dFEa18Ff60FA6B32a \
 
 部署后必做：
 
-1. **回填 SSOT**：把输出的 7 个地址填入 [deployments.ts](../../packages/contracts/src/deployments.ts) 的 `DEPLOYMENTS[84532]` 并同 PR 提交。`DEPLOYMENTS[84532]` 在真实部署前保持缺省（`getDeployment(84532)` 会 throw，前端相关查询自动禁用），**禁止预填占位假地址**。
-2. **前端切换**：`NEXT_PUBLIC_CHAIN_ID=84532` 写入 `frontend/.env.local` 后 `pnpm frontend:build` 验证（或依赖 SSOT 回填后的默认值）。
-3. **冒烟**：对 PrizeVault 小额 `deposit` → `redeem` roundtrip；`cast call` 验证 `PrizeVault.totalAssets() >= totalSupply()`。
-4. **角色交接**：`PrizePool.setDrawManager(keeper)`（见下节）。
+1. **地址已自动回填**：`deploy-testnet.sh` 会把 7 个地址 + `NEXT_PUBLIC_CHAIN_ID=84532` 写入 `frontend/.env.local`（保留 WalletConnect projectId）。`getDeployment()` 对未在 `DEPLOYMENTS` 登记的链（如 84532）完全由 `NEXT_PUBLIC_*` env 解析，无需改源码。
+2. **生产 SSOT（可选）**：若要把真实 Base Sepolia 地址固化为团队共享的 SSOT，可把 7 个地址补入 [deployments.ts](../../packages/contracts/src/deployments.ts) 的 `DEPLOYMENTS[84532]` 并同 PR 提交。此时 env 仍可覆盖（优先级更高），便于本地 fork 测试用不同地址。**禁止预填占位假地址**。
+3. **前端切换**：确认 `frontend/.env.local` 中 `NEXT_PUBLIC_CHAIN_ID=84532` 且 7 个地址非空，`pnpm frontend:build` 验证。
+4. **冒烟**：对 PrizeVault 小额 `deposit` → `redeem` roundtrip；`cast call` 验证 `PrizeVault.totalAssets() >= totalSupply()`。
+5. **角色交接**：`PrizePool.setDrawManager(keeper)`（见下节）。
 
 ## 已部署地址（SSOT）
 
-权威地址表在代码中：[packages/contracts/src/deployments.ts](../../packages/contracts/src/deployments.ts)。`DEPLOYMENTS[31337]` 已回填（anvil 零配置部署的确定性地址）；`DEPLOYMENTS[84532]` 留待首次真实部署后按上节 runbook 回填。`pnpm deploy:local` 自动写入 `frontend/.env.local`（默认路径，不入库）。需要共享给团队或换种方式时也可以：
+权威地址表在代码中：[packages/contracts/src/deployments.ts](../../packages/contracts/src/deployments.ts)。`DEPLOYMENTS[31337]` 已回填（anvil 零配置部署的确定性地址）；`DEPLOYMENTS[84532]` 可选——真实部署后可提交为生产 SSOT，未提交时前端从 `NEXT_PUBLIC_*` env 读取地址。`pnpm deploy:local` / `pnpm deploy:testnet` 均自动写入 `frontend/.env.local`（默认路径，不入库）。需要共享给团队或换种方式时也可以：
 
-1. 把 stdout 地址写入 `DEPLOYMENTS[31337]`（随仓库共享）；或
-2. 手动复制 [frontend/.env.example](../../frontend/.env.example) 为 `frontend/.env.local` 填写（个人本地、不入库）。
+1. 把 stdout 地址写入 `DEPLOYMENTS[84532]`（随仓库共享，作为生产 SSOT）；或
+2. 依赖 `deploy-testnet.sh` 自动写入的 `frontend/.env.local`（个人本地、不入库，适合本地 fork 联调）。
 
 > 安全约束：`.env*` 不入库；`PRIVATE_KEY` 只允许存在于本地环境。
 

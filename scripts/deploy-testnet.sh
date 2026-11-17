@@ -55,14 +55,53 @@ LIQUIDATION_PAIR=$(extract_address "LiqPair")
 YV_TYPE=$(sed -n 's/^[[:space:]]*YvType[[:space:]]*: *//p' "$OUT_FILE" | tail -n 1 || true)
 
 MISSING=()
-for val in "$USDC" "$PRIZE_TOKEN" "$YIELD_VAULT" "$TWAB_CONTROLLER" "$PRIZE_POOL" "$PRIZE_VAULT" "$LIQUIDATION_PAIR"; do
+for pair in \
+  "NEXT_PUBLIC_USDC=$USDC" \
+  "NEXT_PUBLIC_PRIZE_TOKEN=$PRIZE_TOKEN" \
+  "NEXT_PUBLIC_YIELD_VAULT=$YIELD_VAULT" \
+  "NEXT_PUBLIC_TWAB_CONTROLLER=$TWAB_CONTROLLER" \
+  "NEXT_PUBLIC_PRIZE_POOL=$PRIZE_POOL" \
+  "NEXT_PUBLIC_PRIZE_VAULT=$PRIZE_VAULT" \
+  "NEXT_PUBLIC_LIQUIDATION_PAIR=$LIQUIDATION_PAIR"; do
+  val=${pair#*=}
   if [ -z "$val" ]; then
-    MISSING+=("$val")
+    MISSING+=("${pair%%=*}")
   fi
 done
 if [ ${#MISSING[@]} -ne 0 ]; then
-  echo "错误：部署输出缺少地址，请检查上方 forge script 日志" >&2
+  echo "错误：部署输出缺少地址：${MISSING[*]}" >&2
   exit 1
+fi
+
+# 自动回填 frontend/.env.local（与 deploy-local.sh 同逻辑），
+# getDeployment 对 84532 完全由 NEXT_PUBLIC_* env 解析，无需改 deployments.ts。
+ENV_TEMPLATE="$ROOT_DIR/frontend/.env.example"
+ENV_LOCAL="$ROOT_DIR/frontend/.env.local"
+if [ ! -f "$ENV_TEMPLATE" ]; then
+  echo "警告：找不到 ${ENV_TEMPLATE}，跳过 .env.local 回填" >&2
+else
+  EXISTING_PROJECT_ID=""
+  if [ -f "$ENV_LOCAL" ]; then
+    EXISTING_PROJECT_ID=$(sed -n 's/^NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=//p' "$ENV_LOCAL" | tail -n 1 || true)
+  fi
+  cp "$ENV_TEMPLATE" "$ENV_LOCAL"
+  set_var() {
+    local key=$1 value=$2
+    sed -i '' "s|^${key}=.*|${key}=${value}|" "$ENV_LOCAL"
+  }
+  set_var NEXT_PUBLIC_CHAIN_ID 84532
+  set_var NEXT_PUBLIC_RPC_URL "$BASE_SEPOLIA_RPC_URL"
+  set_var NEXT_PUBLIC_USDC "$USDC"
+  set_var NEXT_PUBLIC_PRIZE_TOKEN "$PRIZE_TOKEN"
+  set_var NEXT_PUBLIC_YIELD_VAULT "$YIELD_VAULT"
+  set_var NEXT_PUBLIC_TWAB_CONTROLLER "$TWAB_CONTROLLER"
+  set_var NEXT_PUBLIC_PRIZE_POOL "$PRIZE_POOL"
+  set_var NEXT_PUBLIC_PRIZE_VAULT "$PRIZE_VAULT"
+  set_var NEXT_PUBLIC_LIQUIDATION_PAIR "$LIQUIDATION_PAIR"
+  if [ -n "$EXISTING_PROJECT_ID" ]; then
+    set_var NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID "$EXISTING_PROJECT_ID"
+  fi
+  ENV_FILLED="（已自动回填 ${ENV_LOCAL}）"
 fi
 
 echo ""
@@ -76,5 +115,7 @@ echo "  PrizeVault        $PRIZE_VAULT"
 echo "  LiquidationPair   $LIQUIDATION_PAIR"
 echo ""
 echo "下一步："
-echo "  1) 把地址回填 packages/contracts/src/deployments.ts 的 DEPLOYMENTS[84532]"
-echo "  2) 按docs/architecture/deployment.md「Base Sepolia」小节做小额冒烟：deposit -> withdraw roundtrip"
+echo "  1) ${ENV_FILLED:-手动把地址填入 frontend/.env.local 并设 NEXT_PUBLIC_CHAIN_ID=84532}"
+echo "  2) 本地 fork 联调：确认 frontend/src/lib/config/chains.ts 已临时覆盖 baseSepolia RPC 为 localhost"
+echo "  3) 重启 pnpm frontend:dev（NEXT_PUBLIC_* 在构建时内联，热更新不生效）"
+echo "  4) 按 docs/architecture/deployment.md 做小额冒烟：deposit -> withdraw roundtrip"

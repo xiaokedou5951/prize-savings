@@ -57,6 +57,7 @@ anvil 预置账户（公开测试私钥，**严禁用于真实网络**。fork �
 export RPC=http://127.0.0.1:8545
 export PK0=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 export PK1=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+export PK2=0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a
 export USER1=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
 export USER2=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
 export LIQ=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
@@ -139,7 +140,7 @@ cast send $POOL "awardDraw(uint256)" 20261023 --rpc-url $RPC --private-key $PK0
 fork 拉取 Base Sepolia 状态到本地，**不覆盖链 ID**，保持 84532，从而完整走 `Deploy.s.sol` 的非本地安全分支。真实 StataToken / Aave / USDC 合约以其官方地址存在于 fork 状态中。
 
 ```bash
-export BASE_SEPOLIA_RPC_URL=<你的 Base Sepolia RPC>
+export BASE_SEPOLIA_RPC_URL=https://base-sepolia-rpc.publicnode.com
 
 lsof -ti:8545 | xargs kill 2>/dev/null; sleep 1
 # 方式一：复用 start-anvil.sh（自动处理 Multicall3 注入 + 进程清理；不传 --chain-id）
@@ -176,7 +177,9 @@ cast rpc anvil_impersonateAccount $AAVE_POOL --rpc-url $RPC
 # 2a) 查 AAVE_POOL 的 ETH 余额（fork 上真实 Pool 合约通常为 0）
 cast balance $AAVE_POOL --rpc-url $RPC
 # 若为 0，则充 ETH 付 gas（--unlocked 只免签名不免 gas；不充会报 "Out of gas: allowance: 0"）
-cast rpc anvil_setBalance $AAVE_POOL 0x1000000000000000000 --rpc-url $RPC   # 1 ETH，足够多笔 transfer
+# 注意：anvil_setBalance 接收十六进制。1 ETH = 10^18 wei = 0xDE0B6B3A7640000，
+#       勿用 0x1000000000000000000（那是 2^72 ≈ 4722 ETH）。
+cast rpc anvil_setBalance $AAVE_POOL $(cast to-hex $(cast to-wei 1 ether)) --rpc-url $RPC
 cast balance $AAVE_POOL --rpc-url $RPC   # 校验 = 1000000000000000000
 
 cast send $BASE_USDC "transfer(address,uint256)" $LIQ   1000000000 --from $AAVE_POOL --unlocked --rpc-url $RPC
@@ -214,15 +217,14 @@ YIELD_VAULT_ADDRESS=0xf430cb6E2b85f99222fBFA6dFEa18Ff60FA6B32a \
 # PRIZE_TOKEN_ADDRESS 留空 → 部署 MockERC20 奖币（奖币不在本金路径，测试网允许）
 ```
 
-预期输出 `YvType : stata` 与 7 个地址。`deploy-testnet.sh` **不自动回填** `frontend/.env.local`，需手动填入并设置链 ID / RPC：
+预期输出 `YvType : stata` 与 7 个地址。`deploy-testnet.sh` **自动回填** `frontend/.env.local`（设 `NEXT_PUBLIC_CHAIN_ID=84532`、`NEXT_PUBLIC_RPC_URL` 为部署所用 RPC、7 个合约地址；保留原有的 WalletConnect projectId），无需手动复制：
 
 ```bash
-# 把脚本输出的 7 地址填入 frontend/.env.local，并设：
-#   NEXT_PUBLIC_CHAIN_ID=84532
-#   NEXT_PUBLIC_RPC_URL=http://127.0.0.1:8545
+# 部署完成后 .env.local 已被脚本自动写入，直接重启前端即可。
+# 如需手动校验：cat frontend/.env.local | grep NEXT_PUBLIC_
 ```
 
-> 注意：stata 路径下 Deploy.s.sol 不部署 USDC / YieldVault（直接复用 fork 上的官方合约），部署者 nonce 序列与 mock 路径不同，**`DEPLOYMENTS[31337]` 的硬编码地址完全不适用**，必须以本次 `deploy-testnet.sh` 输出的地址为准。`getDeployment()` 优先读 `NEXT_PUBLIC_*` env，已正确处理；`DEPLOYMENTS[84532]` 未回填也无妨，env 覆盖优先。
+> 注意：stata 路径下 Deploy.s.sol 不部署 USDC / YieldVault（直接复用 fork 上的官方合约），部署者 nonce 序列与 mock 路径不同，**`DEPLOYMENTS[31337]` 的硬编码地址完全不适用**，必须以本次 `deploy-testnet.sh` 输出的地址为准。`getDeployment()` 对未在 `DEPLOYMENTS` 登记的链（如 84532）完全由 `NEXT_PUBLIC_*` env 解析地址，**无需往 `DEPLOYMENTS` 里加 84532 条目**。env 用静态字面量读取，浏览器端可被 Next.js 内联；改完 `.env.local` 后必须**重启 `pnpm frontend:dev`** 才生效。
 
 #### 5.4.1 前端 RPC 指向本地 fork（必需）
 
@@ -400,12 +402,13 @@ cast call $YIELD "totalSupply()(uint256)" --rpc-url $RPC
 | fork 起链后 `cast code <StataToken>` 返回 `0x` | fork 失败：`BASE_SEPOLIA_RPC_URL` 不可达或配额耗尽 → 检查 RPC、换 PublicNode 等公开端点 |
 | `cast call $BASE_USDC "balanceOf(address)" $AAVE_POOL` 返回 0 | Aave Pool 当前无 USDC 存量 → 换一个 USDC 大户（区块浏览器查 top holders），或用 `anvil_setStorageAt` 回退（§5.3） |
 | `anvil_impersonateAccount` 后 `transfer` 仍 revert | 若冒充的是合约，部分 ERC20 实现会校验 `msg.sender` 是否为合约本身——USDC（FiatToken）无此限制，应可直接转；若换其它代币失败，改用 `anvil_setStorageAt` |
-| `cast send --from $AAVE_POOL --unlocked` 报 `Out of gas: gas required exceeds allowance: 0` | 被冒充的 `AAVE_POOL` 地址在 fork 上 ETH 余额为 0，`--unlocked` 只免签名不免 gas → 先 `cast rpc anvil_setBalance $AAVE_POOL 0x1000000000000000000 --rpc-url $RPC` 充 ETH（见 §5.3 步骤 2a） |
+| `cast send --from $AAVE_POOL --unlocked` 报 `Out of gas: gas required exceeds allowance: 0` | 被冒充的 `AAVE_POOL` 地址在 fork 上 ETH 余额为 0，`--unlocked` 只免签名不免 gas → 先 `cast rpc anvil_setBalance $AAVE_POOL $(cast to-hex $(cast to-wei 1 ether)) --rpc-url $RPC` 充 ETH（注意参数是十六进制，`0x1000000000000000000` ≈ 4722 ETH 非 1 ETH；见 §5.3 步骤 2a） |
 | 路径 C 部署后 `YvType` 不是 `stata` | `USDC_ADDRESS` / `YIELD_VAULT_ADDRESS` 未透传到 `forge script` → 确认在运行 `pnpm deploy:testnet` 前已正确传参，或直接用 `forge script Deploy.s.sol` 显式传参 |
-| 路径 C 前端读不到合约 / 地址不对 | stata 路径部署地址 ≠ `DEPLOYMENTS[31337]` 硬编码 → 确认 `frontend/.env.local` 7 地址为本次 `deploy-testnet.sh` 输出值，并已设 `NEXT_PUBLIC_CHAIN_ID=84532`；同时确认 `chains.ts` 已临时覆盖 `baseSepolia` RPC 为 localhost（§5.4.1），并重启 `pnpm frontend:dev` |
+| 路径 C 前端显示「奖池未部署或地址未配置」 | 两个叠加原因：① `getDeployment(84532)` 因 `DEPLOYMENTS` 无 84532 条目直接抛错；② 旧代码用动态 `process.env[key]` 读 env，浏览器端无法内联。已修复（`packages/contracts/src/deployments.ts`：未知链由 env 解析 + 静态字面量读 env）。确认 `.env.local` 7 个 `NEXT_PUBLIC_*` 地址非空、`NEXT_PUBLIC_CHAIN_ID=84532`，然后**重启 `pnpm frontend:dev`**（env 在构建时内联，热更新不生效） |
 | 路径 C `awardDraw` revert `PrizePoolDrawNotReady` | 时间未到：`nextDrawStart() = 部署时间戳 + 1 天 × 期数` → 先 `evm_increaseTime` 再 `evm_mine` |
 | 路径 C warp 后 `liquidatableBalanceOf` 仍为 0 | **Aave 惰性计息**：`liquidityIndex` 仅在储备状态变更时推进 → 先 poke（任意 Aave supply/withdraw 交易）再读取 |
 | 路径 C poke 后 `liquidatableBalanceOf` 增长极小 | Aave 真实利率年化约 4–6%，30 天 1000 USDC 本金收益约 3–5 USDC，属正常；若需更大奖池可增大本金或 warp 更久 |
 | 路径 C 前端连不上 / 读写到真实测试网数据 | wagmi `baseSepolia` 默认 RPC 不是本地 → 检查 §5.4.1 的 `chains.ts` 临时覆盖是否生效，`NEXT_PUBLIC_CHAIN_ID` 是否为 84532 |
 | 重启 anvil 后钱包交易 pending / nonce 报错 | 链重置但 MetaMask 保留旧状态 → 钱包「设置 → 高级 → 清除活动账户数据」 |
 | 前端 BigInt/构建类报错 | Next 16 下禁用 BigInt 字面量（`0n`），须用 `BigInt(...)`；属代码问题，出现即回归失败 |
+| 交易 revert 但无明确错误信息 / 需要定位 gas 消耗 | 用 `cast tx <hash>` 看原始交易（from/to/value/data/gasLimit），`cast receipt <hash>` 看执行结果（`status`、`gasUsed`、`logs`、合约地址等）。bare revert（如除零、溢出）`cast receipt` 不会显示 reason，需用 `cast call --from <from> <to> <sig> <args>` 重放模拟以获取 revert data。gas 异常高说明在深层调用才失败（如 StataToken → Aave `supply` 内部）；gas 极低说明前置校验就失败（如授权不足）。结合 `cast run <hash>` 可重放整笔交易并打印每一步 opcode/trace，定位具体 revert 指令 |

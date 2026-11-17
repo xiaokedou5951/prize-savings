@@ -245,8 +245,6 @@ rm contracts/script/DeployMockAave.s.sol
 
 ### 5.1 部署（stata 主路径）
 
-前置：`DEPLOYMENTS[84532]` 尚未回填，首次部署后按 [deployment.md](../architecture/deployment.md) runbook 回填。
-
 ```bash
 BASE_SEPOLIA_RPC_URL=<你的测试网 RPC> \
 DEPLOYER_PRIVATE_KEY=<部署账户私钥（需 ETH + 测试 USDC）> \
@@ -255,7 +253,7 @@ YIELD_VAULT_ADDRESS=0xf430cb6E2b85f99222fBFA6dFEa18Ff60FA6B32a \
   pnpm deploy:testnet
 ```
 
-预期输出 `YvType : stata`。把 7 地址填入 `DEPLOYMENTS[84532]` 与 `frontend/.env.local`，并设 `NEXT_PUBLIC_CHAIN_ID=84532`。
+预期输出 `YvType : stata`。`deploy-testnet.sh` 自动把 7 地址 + `NEXT_PUBLIC_CHAIN_ID=84532` 写入 `frontend/.env.local`（无需手动复制，也无需改 `DEPLOYMENTS[84532]`）。
 
 ### 5.2 惰性计息验证（关键差异点）
 
@@ -292,10 +290,11 @@ cast call $VAULT "liquidatableBalanceOf()(uint256)" --rpc-url $RPC   # > 0，收
 
 ### 5.4 部署后必做
 
-1. 回填 `DEPLOYMENTS[84532]`（7 地址）并提交，禁止预填占位地址。
-2. `NEXT_PUBLIC_CHAIN_ID=84532 pnpm frontend:build` 验证。
+1. 确认 `frontend/.env.local` 已被 `deploy-testnet.sh` 自动填入 7 地址 + `NEXT_PUBLIC_CHAIN_ID=84532`。
+2. `NEXT_PUBLIC_CHAIN_ID=84532 pnpm frontend:build` 验证（或重启 `pnpm frontend:dev`）。
 3. 小额 `deposit` → `redeem` roundtrip 冒烟，确认 `PrizeVault.totalAssets() >= totalSupply()`。
 4. `PrizePool.setDrawManager(keeper)` 交接开奖权限。
+5. （生产可选）把 7 地址补入 `DEPLOYMENTS[84532]` 并提交作为 SSOT；env 仍可覆盖。
 
 ---
 
