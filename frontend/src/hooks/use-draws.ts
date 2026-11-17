@@ -18,7 +18,16 @@ export interface Draw {
   claims: DrawClaim[];
 }
 
-/** 链上拉取历史开奖与中奖记录（anvil 支持 getLogs；倒序返回）。 */
+/**
+ * 链上拉取历史开奖与中奖记录（anvil 支持 getLogs；倒序返回）。
+ *
+ * 注意：anvil fork（如 Base Sepolia 本地 fork）的 eth_getLogs 有区块范围上限
+ * （默认 50000），fromBlock=0 会报 "exceed maximum block range"。
+ * 因此取最新区块号，fromBlock = max(0, latest - 49999)，卡在范围内。
+ * 本地 anvil（31337）latest 很小，等效于从 0 开始扫描。
+ */
+const MAX_LOG_BLOCK_RANGE = BigInt(49999);
+
 export function useDraws() {
   const d = useDeployment();
   const publicClient = usePublicClient();
@@ -28,19 +37,21 @@ export function useDraws() {
     queryKey: ["draws", pool],
     queryFn: async () => {
       if (!publicClient || !pool) return [] as Draw[];
+      const latest = await publicClient.getBlockNumber();
+      const fromBlock = latest > MAX_LOG_BLOCK_RANGE ? latest - MAX_LOG_BLOCK_RANGE : BigInt(0);
       const [awards, claims] = await Promise.all([
         publicClient.getContractEvents({
           address: pool,
           abi: prizePoolAbi,
           eventName: "DrawAwarded",
-          fromBlock: BigInt(0),
+          fromBlock,
           strict: true,
         }),
         publicClient.getContractEvents({
           address: pool,
           abi: prizePoolAbi,
           eventName: "PrizeClaimed",
-          fromBlock: BigInt(0),
+          fromBlock,
           strict: true,
         }),
       ]);
