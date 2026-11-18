@@ -16,6 +16,8 @@ import { PrizeVault } from "../src/PrizeVault/PrizeVault.sol";
 import { PrizePool } from "../src/PrizePool/PrizePool.sol";
 import { LiquidationPair } from "../src/LiquidationPair/LiquidationPair.sol";
 import { AaveYieldVault, IAavePool, IAaveToken } from "../src/PrizeVault/AaveYieldVault.sol";
+import { RngRelay } from "../src/RngRelay/RngRelay.sol";
+import { VRFCoordinatorV2_5Mock } from "@chainlink/contracts/src/v0.8/vrf/mocks/VRFCoordinatorV2_5Mock.sol";
 
 /// @notice 部署 + 组装 + 授权（M0 合约 MVP）。
 /// @dev 通过环境变量选择实现与收益源（配置矩阵见 docs/architecture/deployment.md）：
@@ -26,7 +28,8 @@ import { AaveYieldVault, IAavePool, IAaveToken } from "../src/PrizeVault/AaveYie
 ///        > 仅 chainId 31337 允许 MockERC4626；
 ///      - 本金路径（USDC / 收益源）在非本地链上不允许 mock，缺配置直接 revert；
 ///        PRIZE 奖币不在本金路径，允许测试网 mock（脚本打印提示）。
-///      随机数由 keeper 注入，不配置真实 Chainlink 订阅。
+///      - VRF：本地（31337）自动部署 VRFCoordinatorV2_5Mock + 创建订阅 + 注资；
+///        非本地链必须显式配置 VRF_COORDINATOR / VRF_KEY_HASH / VRF_SUB_ID，否则 revert。
 contract Deploy is Script {
     using SafeERC20 for IERC20;
 
@@ -35,12 +38,15 @@ contract Deploy is Script {
     uint256 internal constant DEFAULT_ADAPTER_SEED = 1_000e6;
     /// @notice 死地址：seed 份额接收者，锁死首充份额以锚定适配器汇率。
     address internal constant DEAD_ADDRESS = address(0xdEaD);
+    uint16 internal constant DEFAULT_VRF_REQUEST_CONFIRMATIONS = 3;
+    uint32 internal constant DEFAULT_VRF_CALLBACK_GAS_LIMIT = 500_000;
 
     error DeployUsdcRequired(uint256 chainId);
     error DeployYieldSourceRequired(uint256 chainId);
     error DeployAaveConfigIncomplete(address pool, address aToken);
     error DeployYieldVaultAssetMismatch(address yieldVault, address usdc);
     error DeploySeedInsufficient(uint256 balance, uint256 seed);
+    error DeployVrfConfigRequired(uint256 chainId);
 
     function run() external {
         string memory mode = vm.envOr("TWAB_MODE", string("simple"));
@@ -49,6 +55,11 @@ contract Deploy is Script {
         uint256 deployerPk = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(deployerPk);
         bool isLocal = block.chainid == 31337;
+
+        // 确保 block.number >= 1：Chainlink VRF mock 的 createSubscription 内部
+        // 使用 blockhash(block.number - 1)，在块高为 0 时会算术下溢 panic。
+        // 在 startBroadcast 前调用，仅影响模拟环境，不产生广播交易。
+        if (block.number < 1) vm.roll(1);
 
         vm.startBroadcast(deployerPk);
 
@@ -63,18 +74,22 @@ contract Deploy is Script {
             ? ITwabController(address(new ObservationTwabController()))
             : ITwabController(address(new SimpleTwabController()));
 
-        // 4. 奖池
+        // 4. 奖池（drawManager 临时设为 deployer，稍后交接给 RngRelay）
         uint32 periodOffset = uint32(block.timestamp);
         PrizePool prizePool = new PrizePool(prizeToken, twab, DAILY, periodOffset, deployer);
 
-        // 5. PrizeVault
+        // 5. RngRelay（Chainlink VRF v2.5 consumer，作为 PrizePool 的 drawManager）
+        (RngRelay rngRelay, address vrfCoordinator) = _deployRngRelay(prizePool, isLocal);
+        prizePool.setDrawManager(address(rngRelay));
+
+        // 6. PrizeVault
         PrizeVault vault = new PrizeVault(usdc, yieldVault, twab, "Prize Vault USDC", "pvUSDC", deployer);
 
-        // 6. LiquidationPair（奖币进奖池，yield 给清算者）
+        // 7. LiquidationPair（奖币进奖池，yield 给清算者）
         LiquidationPair pair =
             new LiquidationPair(prizeToken, usdc, vault, DAILY, periodOffset, 1e18, address(prizePool));
 
-        // 7. 组装授权
+        // 8. 组装授权
         TwabController(address(twab)).setVault(address(vault));
         vault.setLiquidationPair(address(pair));
 
@@ -89,6 +104,8 @@ contract Deploy is Script {
         console.log("YvType     :", yvType);
         console.log("Twab       :", address(twab));
         console.log("PrizePool  :", address(prizePool));
+        console.log("VrfCoord   :", address(vrfCoordinator));
+        console.log("RngRelay   :", address(rngRelay));
         console.log("PrizeVault :", address(vault));
         console.log("LiqPair    :", address(pair));
         console.log("drawOffset :", periodOffset);
@@ -169,6 +186,53 @@ contract Deploy is Script {
             yvType = "mock";
         } else {
             revert DeployYieldSourceRequired(block.chainid);
+        }
+    }
+
+    /// @dev 部署 RngRelay（Chainlink VRF v2.5 consumer）。
+    ///      本地（31337）：部署 VRFCoordinatorV2_5Mock；RngRelay 的 subId 占位为 0，
+    ///        订阅创建/注资/addConsumer 由 deploy-local.sh 用 cast 完成（createSubscription 的
+    ///        返回值依赖 blockhash，forge script 在 broadcast 阶段无法可靠捕获，必须链上读取）。
+    ///      非本地：必须配置 VRF_COORDINATOR / VRF_KEY_HASH / VRF_SUB_ID，否则 revert。
+    ///      注意：非本地链上 addConsumer 需由订阅 owner 在 Chainlink 管理面板操作，
+    ///      若部署者即订阅 owner 则本脚本可完成；否则脚本会打印提示。
+    function _deployRngRelay(PrizePool prizePool, bool isLocal)
+        internal
+        returns (RngRelay rngRelay, address vrfCoordinator)
+    {
+        uint16 requestConfirmations =
+            uint16(vm.envOr("VRF_REQUEST_CONFIRMATIONS", uint256(DEFAULT_VRF_REQUEST_CONFIRMATIONS)));
+        uint32 callbackGasLimit = uint32(vm.envOr("VRF_CALLBACK_GAS_LIMIT", uint256(DEFAULT_VRF_CALLBACK_GAS_LIMIT)));
+
+        if (isLocal) {
+            VRFCoordinatorV2_5Mock vrfMock = new VRFCoordinatorV2_5Mock(0, 1e9, 1e18);
+            vrfCoordinator = address(vrfMock);
+
+            // subId 占位为 0；deploy-local.sh 会在部署后用 cast 调用
+            // createSubscription / fundSubscriptionWithNative / addConsumer，
+            // 再调 RngRelay.setSubId 写入真实 subId。
+            rngRelay = new RngRelay(
+                address(vrfMock), prizePool, keccak256("local-keyhash"), 0, requestConfirmations, callbackGasLimit
+            );
+
+            console.log(
+                unicode"INFO: 本地 VRF 订阅将由 deploy-local.sh 用 cast 创建并注入 RngRelay.setSubId"
+            );
+        } else {
+            vrfCoordinator = vm.envOr("VRF_COORDINATOR", address(0));
+            bytes32 keyHash = vm.envOr("VRF_KEY_HASH", bytes32(0));
+            uint256 subId = vm.envOr("VRF_SUB_ID", uint256(0));
+
+            if (vrfCoordinator == address(0) || keyHash == bytes32(0) || subId == 0) {
+                revert DeployVrfConfigRequired(block.chainid);
+            }
+
+            rngRelay = new RngRelay(vrfCoordinator, prizePool, keyHash, subId, requestConfirmations, callbackGasLimit);
+
+            console.log(
+                unicode"WARN: 请确认 RngRelay 已被添加为 VRF 订阅的 consumer（Chainlink 管理面板或订阅 owner 调 addConsumer）"
+            );
+            console.log(unicode"      未添加 consumer 将导致 requestDraw revert InvalidConsumer");
         }
     }
 }

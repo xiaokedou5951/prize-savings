@@ -48,6 +48,9 @@ Base Sepolia（测试网部署用）：
 | USDC（测试币） | `0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f` |
 | USDC StataToken | `0xf430cb6E2b85f99222fBFA6dFEa18Ff60FA6B32a` |
 | PoolAddressesProvider | `0xE4C23309117Aa30342BFaae6c95c6478e0A4Ad00` |
+| Chainlink VRF Coordinator v2.5 | `0x5D292299385dDa5728b528490209481c887F517d` |
+
+> VRF 订阅需在 [Chainlink Subscription Manager](https://vrf.chain.link) 创建并注资（Base Sepolia 用测试 ETH），记下 `subId`；部署后需将 RngRelay 地址添加为 consumer。Coordinator 地址来自 Chainlink 官方文档，使用前建议再核对。
 
 ## 本地部署步骤
 
@@ -57,7 +60,7 @@ Base Sepolia（测试网部署用）：
 # 终端 1：起链（含 Multicall3 注入），保持常驻
 pnpm chain
 
-# 终端 2：部署并自动把 7 个地址写入 frontend/.env.local（保留已填的 WalletConnect projectId）
+# 终端 2：部署并自动把 8 个地址写入 frontend/.env.local（保留已填的 WalletConnect projectId）
 pnpm deploy:local
 ```
 
@@ -70,7 +73,21 @@ TWAB_MODE=simple \
   forge script script/Deploy.s.sol --root contracts --rpc-url local --broadcast
 ```
 
-部署脚本 [Deploy.s.sol](../../contracts/script/Deploy.s.sol) 依次部署 USDC、奖币、收益源（本地默认 `MockERC4626`）、TWAB（按 `TWAB_MODE` 二选一）、PrizePool、PrizeVault、LiquidationPair，完成 `setVault` / `setLiquidationPair` 组装，并把 7 个地址 + `ChainId` / `YvType` 打印到 stdout（零配置行为与 SSOT 地址见 `DEPLOYMENTS[31337]`；anvil 重启后地址不变的前提是部署者 nonce 序列未被打乱）。
+部署脚本 [Deploy.s.sol](../../contracts/script/Deploy.s.sol) 依次部署 USDC、奖币、收益源（本地默认 `MockERC4626`）、TWAB（按 `TWAB_MODE` 二选一）、PrizePool、VRFCoordinatorV2_5Mock（本地）、RngRelay、PrizeVault、LiquidationPair，完成 `setDrawManager(rngRelay)` / `setVault` / `setLiquidationPair` 组装，并把 8 个地址 + `ChainId` / `YvType` 打印到 stdout（零配置行为与 SSOT 地址见 `DEPLOYMENTS[31337]`；anvil 重启后地址不变的前提是部署者 nonce 序列未被打乱）。
+
+**本地 VRF 订阅设置**：`Deploy.s.sol` 本地分支仅部署 VRF mock 与 RngRelay（RngRelay 的 `subId` 占位为 0）。`createSubscription()` 的返回值依赖 `blockhash`，forge script 在 broadcast 阶段无法可靠捕获，因此订阅创建/注资/addConsumer 由 `deploy-local.sh` 在部署后用 `cast` 完成，并把真实 `subId` 写入 `RngRelay.setSubId`。手工部署时需补做：
+
+```bash
+# 1) 创建订阅，从 SubscriptionCreated 事件取 subId
+SUB_ID=$(cast send --rpc-url $RPC --private-key $PK0 --json $VRF "createSubscription()(uint256)" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['logs'][0]['topics'][1])")
+# 2) 注资 10 ETH
+cast send --rpc-url $RPC --private-key $PK0 --value 10ether $VRF "fundSubscriptionWithNative(uint256)" $SUB_ID
+# 3) 添加 RngRelay 为 consumer
+cast send --rpc-url $RPC --private-key $PK0 $VRF "addConsumer(uint256,address)" $SUB_ID $RNG_RELAY
+# 4) 写入 RngRelay
+cast send --rpc-url $RPC --private-key $PK0 $RNG_RELAY "setSubId(uint256)" $SUB_ID
+```
 
 ## Base Sepolia 部署步骤（runbook）
 
@@ -81,6 +98,9 @@ BASE_SEPOLIA_RPC_URL=<RPC> \
 DEPLOYER_PRIVATE_KEY=0x<部署账户私钥> \
 USDC_ADDRESS=0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f \
 YIELD_VAULT_ADDRESS=0xf430cb6E2b85f99222fBFA6dFEa18Ff60FA6B32a \
+VRF_COORDINATOR=0x5D292299385dDa5728b528490209481c887F517d \
+VRF_KEY_HASH=0x<VRF key hash> \
+VRF_SUB_ID=<VRF subscription id> \
   pnpm deploy:testnet
 ```
 
@@ -89,14 +109,16 @@ YIELD_VAULT_ADDRESS=0xf430cb6E2b85f99222fBFA6dFEa18Ff60FA6B32a \
 1. 部署账户持有 Base Sepolia 测试 USDC（水龙头领取；仅 ETH 而无 USDC 无法完成部署后冒烟）。
 2. 收益源用上表 StataToken（主路径，输出 `YvType: stata`）；若 stata 份额为 0，按脚本警告先对其 seed 存款（份额发死地址）再开放 PrizeVault 存款。
 3. `PRIZE_TOKEN_ADDRESS` 可省略（部署 MockERC20 奖币，liquidator 需自行 mint）。
+4. **VRF 订阅**：在 [Chainlink Subscription Manager](https://vrf.chain.link) 创建订阅并注资（Base Sepolia 用测试 ETH，native payment）。记下 `subId`，填入 `VRF_SUB_ID`。`VRF_KEY_HASH` 选 Base Sepolia 可用的 key hash（见 Chainlink 文档）。`VRF_COORDINATOR` 用上表地址。
 
 部署后必做：
 
-1. **地址已自动回填**：`deploy-testnet.sh` 会把 7 个地址 + `NEXT_PUBLIC_CHAIN_ID=84532` 写入 `frontend/.env.local`（保留 WalletConnect projectId）。`getDeployment()` 对未在 `DEPLOYMENTS` 登记的链（如 84532）完全由 `NEXT_PUBLIC_*` env 解析，无需改源码。
-2. **生产 SSOT（可选）**：若要把真实 Base Sepolia 地址固化为团队共享的 SSOT，可把 7 个地址补入 [deployments.ts](../../packages/contracts/src/deployments.ts) 的 `DEPLOYMENTS[84532]` 并同 PR 提交。此时 env 仍可覆盖（优先级更高），便于本地 fork 测试用不同地址。**禁止预填占位假地址**。
-3. **前端切换**：确认 `frontend/.env.local` 中 `NEXT_PUBLIC_CHAIN_ID=84532` 且 7 个地址非空，`pnpm frontend:build` 验证。
-4. **冒烟**：对 PrizeVault 小额 `deposit` → `redeem` roundtrip；`cast call` 验证 `PrizeVault.totalAssets() >= totalSupply()`。
-5. **角色交接**：`PrizePool.setDrawManager(keeper)`（见下节）。
+1. **地址已自动回填**：`deploy-testnet.sh` 会把 8 个地址 + `NEXT_PUBLIC_CHAIN_ID=84532` 写入 `frontend/.env.local`（保留 WalletConnect projectId）。`getDeployment()` 对未在 `DEPLOYMENTS` 登记的链（如 84532）完全由 `NEXT_PUBLIC_*` env 解析，无需改源码。
+2. **VRF consumer 注册**：在 Chainlink Subscription Manager 中将部署得到的 RngRelay 地址添加为订阅 consumer（或由订阅 owner 调 `addConsumer(subId, rngRelay)`）。未添加则 `requestDraw` 会 revert `InvalidConsumer`。
+3. **生产 SSOT（可选）**：若要把真实 Base Sepolia 地址固化为团队共享的 SSOT，可把 8 个地址补入 [deployments.ts](../../packages/contracts/src/deployments.ts) 的 `DEPLOYMENTS[84532]` 并同 PR 提交。此时 env 仍可覆盖（优先级更高），便于本地 fork 测试用不同地址。**禁止预填占位假地址**。
+4. **前端切换**：确认 `frontend/.env.local` 中 `NEXT_PUBLIC_CHAIN_ID=84532` 且 8 个地址非空，`pnpm frontend:build` 验证。
+5. **冒烟**：对 PrizeVault 小额 `deposit` → `redeem` roundtrip；`cast call` 验证 `PrizeVault.totalAssets() >= totalSupply()`。
+6. **开奖冒烟**：warp 到 `nextDrawStart()` 后 `cast send $RNG_RELAY "requestDraw()"`，等待 VRF 回调（测试网约 1-2 分钟），确认 `DrawFulfilled` 事件。
 
 ## 已部署地址（SSOT）
 
@@ -116,7 +138,7 @@ YIELD_VAULT_ADDRESS=0xf430cb6E2b85f99222fBFA6dFEa18Ff60FA6B32a \
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | 连钱包时必填 | WalletConnect Cloud projectId；占位值仅能通过构建 |
 | `NEXT_PUBLIC_CHAIN_ID` | 否 | 默认 `31337`；`84532` 时默认链切到 Base Sepolia |
 | `NEXT_PUBLIC_RPC_URL` | 否 | 默认 `http://127.0.0.1:8545` |
-| `NEXT_PUBLIC_USDC` / `NEXT_PUBLIC_PRIZE_TOKEN` / `NEXT_PUBLIC_YIELD_VAULT` / `NEXT_PUBLIC_TWAB_CONTROLLER` / `NEXT_PUBLIC_PRIZE_POOL` / `NEXT_PUBLIC_PRIZE_VAULT` / `NEXT_PUBLIC_LIQUIDATION_PAIR` | 否 | 逐项覆盖 SSOT 地址 |
+| `NEXT_PUBLIC_USDC` / `NEXT_PUBLIC_PRIZE_TOKEN` / `NEXT_PUBLIC_YIELD_VAULT` / `NEXT_PUBLIC_TWAB_CONTROLLER` / `NEXT_PUBLIC_PRIZE_POOL` / `NEXT_PUBLIC_RNG_RELAY` / `NEXT_PUBLIC_VRF_COORDINATOR` / `NEXT_PUBLIC_PRIZE_VAULT` / `NEXT_PUBLIC_LIQUIDATION_PAIR` | 否 | 逐项覆盖 SSOT 地址 |
 
 ### keeper（运行期注入，[keeper/.env.example](../../keeper/.env.example)）
 
@@ -136,17 +158,20 @@ YIELD_VAULT_ADDRESS=0xf430cb6E2b85f99222fBFA6dFEa18Ff60FA6B32a \
 | `AAVE_POOL` / `AAVE_ATOKEN` / `AAVE_ADAPTER_SEED` | 适配器回退路径（与 `YIELD_VAULT_ADDRESS` 互斥，配一半 revert；seed 默认 1_000 USDC） |
 | `BASE_RPC_URL` | Base 主网 RPC，仅 fork 测试用；未设时 `ForkStataYield.t.sol` 自动 skip |
 | `BASE_SEPOLIA_RPC_URL` | Base Sepolia RPC，`pnpm deploy:testnet` 必填 |
+| `VRF_COORDINATOR` | Chainlink VRF Coordinator v2.5 地址（非本地必填；本地用内置 mock） |
+| `VRF_KEY_HASH` | VRF key hash（非本地必填；本地用固定值） |
+| `VRF_SUB_ID` | VRF 订阅 ID（非本地必填；本地由 deploy-local.sh 创建并注入） |
+| `VRF_REQUEST_CONFIRMATIONS` | VRF 请求确认数（默认 3） |
+| `VRF_CALLBACK_GAS_LIMIT` | VRF 回调 gas 上限（默认 500_000） |
 
-## 角色交接（部署后必做）
+## 开奖管理（部署后必做）
 
-[Deploy.s.sol](../../contracts/script/Deploy.s.sol) 中 `PrizePool` 的初始 `drawManager` 是部署者本人。keeper 落地后需由 owner 执行一次：
+[Deploy.s.sol](../../contracts/script/Deploy.s.sol) 中 `PrizePool` 的初始 `drawManager` 是 **RngRelay**（`setDrawManager(rngRelay)` 在部署时自动完成）。RngRelay 作为 VRF consumer，在 `requestDraw()` 触发 VRF 回调后自动调用 `awardDraw`，无需 keeper 注入随机数。
 
-```solidity
-PrizePool.setDrawManager(keeperAddress);
-```
-
-在此之前，可用部署者账户直接 `cast send` 调 `awardDraw` 完成手工开奖联调。
+- 本地：`deploy-local.sh` 自动完成 VRF mock 订阅创建/注资/addConsumer/setSubId，开箱即用。
+- 测试网：需在 Chainlink Subscription Manager 中将 RngRelay 设为订阅 consumer（见上节）。
+- owner 权限：RngRelay 继承 `VRFConsumerBaseV2Plus` 的 `onlyOwner`，可调整 `setSubId` / `setKeyHash` / `setRequestConfirmations` / `setCallbackGasLimit`，以及安全阀门 `resetPendingRequest`（仅当 VRF 回调永久丢失时使用）。
 
 ## keeper 运行形态
 
-规划为常驻 Node 进程（`tsx watch` 开发 / `node dist` 生产，见根 `pnpm keeper:dev|build`），轮询周期边界驱动清算与开奖。**当前为 no-op 脚手架**，无任何部署物；M1 接入 VRF 后需重新评估其可信边界（见 [ADR-0003](../decisions/ADR-0003-keeper-injected-rng-over-pfda.md)）。
+规划为常驻 Node 进程（`tsx watch` 开发 / `node dist` 生产，见根 `pnpm keeper:dev|build`），轮询周期边界驱动清算与开奖。**当前为 no-op 脚手架**，无任何部署物。开奖流程为 `RngRelay.requestDraw()` → VRF 回调 → `PrizePool.awardDraw()`，keeper 只需在 draw 到期时调用无许可的 `requestDraw`（[ADR-0003](../decisions/ADR-0003-keeper-injected-rng-over-pfda.md) 已废弃）。

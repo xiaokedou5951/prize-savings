@@ -119,7 +119,7 @@ EVM 无法在一次交易内对全体用户做无放回抽样，`getClaimableAmo
 | 角色 | 能做什么 | 不能做什么（安全红线） |
 |------|----------|------------------------|
 | PrizePool `owner` | `setDrawManager` | 接触不到奖币；无暂停/提款函数 |
-| `drawManager`（keeper） | 注入随机数 `awardDraw` | 不能决定中奖者（随机数在 TWAB 抽样中只作种子）、不能动资金 |
+| `drawManager`（RngRelay） | 回调中调 `awardDraw(randomNumber)`，随机数来自 Chainlink VRF | 不能决定中奖者（VRF 随机数在 TWAB 抽样中只作种子）、不能动资金；owner 无法注入随机数 |
 | PrizeVault `owner` | `setLiquidationPair`、`setYieldBuffer` | 不能转移用户资产；不能改兑换率 |
 | `liquidationPair` | 从金库转出**可清算 yield** | 转出量受 `liquidatableBalanceOf` 上钳（`swapExactAmountOut` 内 cap） |
 | TwabController `vault` | mint/burn/transfer 份额 | `setVault` 交接后旧 vault 永久失权，无回退路径 |

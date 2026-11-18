@@ -15,4 +15,5 @@ interface IPrizePool {
 
     function prizeToken() external view returns (IERC20);
     function drawPeriodSeconds() external view returns (uint32);
+    function nextDrawStart() external view returns (uint32);
 }

@@ -26,7 +26,7 @@ M0 集成后收益源由部署期环境变量三档回退决定（[Deploy.s.sol]
 - 三条全局不变量链上抽检：零损失 / 份额守恒 / TWAB 只读追溯。
 - 真实 Aave 特有行为：惰性计息（warp 无效、poke 后收益才到账）。
 
-不做：真实 keeper 进程、subgraph、Chainlink VRF、多 vault。
+不做：真实 keeper 进程、subgraph、多 vault。
 
 ---
 
@@ -57,7 +57,7 @@ export USER1=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
 export LIQ=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 ```
 
-从 `frontend/.env.local` 读取 7 个部署地址：
+从 `frontend/.env.local` 读取 9 个部署地址：
 
 ```bash
 USDC=$(grep '^NEXT_PUBLIC_USDC=' frontend/.env.local | cut -d= -f2)
@@ -65,6 +65,8 @@ PRIZE=$(grep '^NEXT_PUBLIC_PRIZE_TOKEN=' frontend/.env.local | cut -d= -f2)
 YIELD=$(grep '^NEXT_PUBLIC_YIELD_VAULT=' frontend/.env.local | cut -d= -f2)
 TWAB=$(grep '^NEXT_PUBLIC_TWAB_CONTROLLER=' frontend/.env.local | cut -d= -f2)
 POOL=$(grep '^NEXT_PUBLIC_PRIZE_POOL=' frontend/.env.local | cut -d= -f2)
+RNG_RELAY=$(grep '^NEXT_PUBLIC_RNG_RELAY=' frontend/.env.local | cut -d= -f2)
+VRF=$(grep '^NEXT_PUBLIC_VRF_COORDINATOR=' frontend/.env.local | cut -d= -f2)
 VAULT=$(grep '^NEXT_PUBLIC_PRIZE_VAULT=' frontend/.env.local | cut -d= -f2)
 PAIR=$(grep '^NEXT_PUBLIC_LIQUIDATION_PAIR=' frontend/.env.local | cut -d= -f2)
 ```
@@ -86,7 +88,7 @@ pnpm chain
 pnpm deploy:local
 ```
 
-预期：输出 7 地址 + `YvType : mock`，`.env.local` 7 个变量非空。
+预期：输出 9 地址 + `YvType : mock`，`.env.local` 9 个变量非空。
 
 ### 3.2 存款与赎回
 
@@ -111,10 +113,12 @@ cast send $PRIZE "approve(address,uint256)" $PAIR $(cast max-uint) --rpc-url $RP
 AVAIL=$(cast call $VAULT "liquidatableBalanceOf()(uint256)" --rpc-url $RPC | awk '{print $1}')
 cast send $PAIR "swapExactAmountOut(uint256,address)" $AVAIL $LIQ --rpc-url $RPC --private-key $PK0
 
-# 3) 到点开奖（#0 为 drawManager）
+# 3) 到点开奖（通过 RngRelay 请求 VRF；本地 mock 手动 fulfill）
 cast rpc evm_increaseTime 86400 --rpc-url $RPC
 cast rpc evm_mine --rpc-url $RPC
-cast send $POOL "awardDraw(uint256)" 20261023 --rpc-url $RPC --private-key $PK0
+cast send $RNG_RELAY "requestDraw()" --rpc-url $RPC --private-key $PK0
+REQ_ID=$(cast call $RNG_RELAY "pendingRequestId()(uint256)" --rpc-url $RPC)
+cast send $VRF "fulfillRandomWords(uint256,address)" $REQ_ID $RNG_RELAY --rpc-url $RPC --private-key $PK0
 
 # 4) 领奖（单人 100% TWAB，三档全中：约 60/25/15 PRIZE）
 cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER1 0 1 --rpc-url $RPC
@@ -195,7 +199,7 @@ echo "totalSupply:"; cast call $ADAPTER "totalSupply()(uint256)" --rpc-url $RPC
 
 ### 4.4 存款与赎回（经 PrizeVault → adapter → Aave pool）
 
-把 7 地址手动填入 `frontend/.env.local`（或复用 §2 的 grep 读取，注意此时 `NEXT_PUBLIC_USDC` 应为 `$MOCK_USDC`）。给用户铸 USDC 并存款：
+把 9 地址手动填入 `frontend/.env.local`（或复用 §2 的 grep 读取，注意此时 `NEXT_PUBLIC_USDC` 应为 `$MOCK_USDC`）。给用户铸 USDC 并存款：
 
 ```bash
 cast send $USDC "mint(address,uint256)" $USER1 1000000000 --rpc-url $RPC --private-key $PK1
@@ -253,7 +257,7 @@ YIELD_VAULT_ADDRESS=0xf430cb6E2b85f99222fBFA6dFEa18Ff60FA6B32a \
   pnpm deploy:testnet
 ```
 
-预期输出 `YvType : stata`。`deploy-testnet.sh` 自动把 7 地址 + `NEXT_PUBLIC_CHAIN_ID=84532` 写入 `frontend/.env.local`（无需手动复制，也无需改 `DEPLOYMENTS[84532]`）。
+预期输出 `YvType : stata`。`deploy-testnet.sh` 自动把 9 地址 + `NEXT_PUBLIC_CHAIN_ID=84532` 写入 `frontend/.env.local`（无需手动复制，也无需改 `DEPLOYMENTS[84532]`）。
 
 ### 5.2 惰性计息验证（关键差异点）
 
@@ -290,11 +294,11 @@ cast call $VAULT "liquidatableBalanceOf()(uint256)" --rpc-url $RPC   # > 0，收
 
 ### 5.4 部署后必做
 
-1. 确认 `frontend/.env.local` 已被 `deploy-testnet.sh` 自动填入 7 地址 + `NEXT_PUBLIC_CHAIN_ID=84532`。
+1. 确认 `frontend/.env.local` 已被 `deploy-testnet.sh` 自动填入 9 地址 + `NEXT_PUBLIC_CHAIN_ID=84532`。
 2. `NEXT_PUBLIC_CHAIN_ID=84532 pnpm frontend:build` 验证（或重启 `pnpm frontend:dev`）。
 3. 小额 `deposit` → `redeem` roundtrip 冒烟，确认 `PrizeVault.totalAssets() >= totalSupply()`。
-4. `PrizePool.setDrawManager(keeper)` 交接开奖权限。
-5. （生产可选）把 7 地址补入 `DEPLOYMENTS[84532]` 并提交作为 SSOT；env 仍可覆盖。
+4. 开奖入口已为 RngRelay（部署时 `setDrawManager(rngRelay)`），无需再 `setDrawManager`；keeper 到点调 `RngRelay.requestDraw()` 即可。
+5. （生产可选）把 9 地址补入 `DEPLOYMENTS[84532]` 并提交作为 SSOT；env 仍可覆盖。
 
 ---
 
@@ -350,6 +354,6 @@ cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER1 1 1 -
 | 路径 B 部署后 `YvType` 不是 `aave-adapter` | 环境变量未传入或拼写错误：`USDC_ADDRESS` / `AAVE_POOL` / `AAVE_ATOKEN` 缺一不可；`deploy-local.sh` 不透传这些变量，必须直接调 `forge script Deploy.s.sol` |
 | 路径 B adapter 部署 revert `DeploySeedInsufficient` | 部署者 USDC 余额不足 seed（默认 1000e6）→ 先 `mint` 足够 USDC 给部署者，或设 `AAVE_ADAPTER_SEED=0` 跳过（会打印通胀攻击警告） |
 | 路径 C warp 后 `liquidatableBalanceOf` 仍为 0 | **Aave 惰性计息**：`liquidityIndex` 仅在储备状态变更时推进 → 先 poke（任意 Aave 存款/取款交易）再读取 |
-| `awardDraw` revert `PrizePoolDrawNotReady` | 时间未到：`nextDrawStart() = 部署时间戳 + 1 天 × 期数`，先 `evm_increaseTime` 再 `evm_mine` |
-| `awardDraw` revert `PrizePoolOnlyDrawManager` | 私钥用错；初始 drawManager 是部署者 #0，换人需先由 owner 调 `setDrawManager` |
+| `requestDraw` revert `RngRelayDrawNotReady` | 时间未到：`nextDrawStart() = 部署时间戳 + 1 天 × 期数`，先 `evm_increaseTime` 再 `evm_mine` |
+| `awardDraw` revert `PrizePoolOnlyDrawManager` | 直调 PrizePool 被拒；开奖入口是 RngRelay（drawManager），须走 `requestDraw()` |
 | 前端 BigInt/构建类报错 | Next 16 下禁用 BigInt 字面量（`0n`），须用 `BigInt(...)`；属代码问题，出现即回归失败 |

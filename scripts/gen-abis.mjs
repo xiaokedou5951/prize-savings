@@ -25,6 +25,7 @@ const TARGETS = [
   { artifact: "PrizePool.sol/PrizePool.json", file: "PrizePool.ts", name: "prizePoolAbi" },
   { artifact: "ITwabController.sol/ITwabController.json", file: "TwabController.ts", name: "twabControllerAbi" },
   { artifact: "LiquidationPair.sol/LiquidationPair.json", file: "LiquidationPair.ts", name: "liquidationPairAbi" },
+  { artifact: "RngRelay.sol/RngRelay.json", file: "RngRelay.ts", name: "rngRelayAbi" },
 ];
 
 if (!existsSync(outDir)) {

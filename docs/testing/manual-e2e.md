@@ -12,14 +12,14 @@
 
 - 本地链启动、合约部署、地址回填、钱包接入。
 - 前端 5 路由渲染与三条写路径：存款（approve + deposit）、赎回（withdraw）、领奖（claimPrize）。
-- 用 `cast` 模拟尚为空壳的 keeper：注入收益、荷兰拍清算、快进时间、注入随机数开奖。
+- 用 `cast` 模拟尚为空壳的 keeper：注入收益、荷兰拍清算、快进时间、通过 RngRelay 请求 Chainlink VRF 随机数开奖。
 - 三条全局不变量的**链上抽检**（自动化证明仍以 Foundry 为准）：
   1. 零损失：`PrizeVault.totalAssets() >= totalSupply()`；
   2. 份额守恒：`TwabController.totalSupply() == PrizeVault.totalSupply()`；
   3. TWAB 只读追溯：开奖后的存取款不改变历史 draw 的 claimable。
 - 关键异常路径：未授权、余额不足、提前开奖、非 drawManager、重复领取。
 
-不做（M0 Out of Scope）：真实 keeper 进程、subgraph 索引、Chainlink VRF、Claimer 自动派奖、多 vault。
+不做（M0 Out of Scope）：真实 keeper 进程、subgraph 索引、Claimer 自动派奖、多 vault。
 
 ---
 
@@ -32,6 +32,8 @@ sequenceDiagram
     participant V as PrizeVault
     participant YV as MockERC4626
     participant LP as LiquidationPair
+    participant RR as RngRelay
+    participant VRF as VRFCoordinator
     participant PP as PrizePool
     participant K as cast 模拟 keeper(#0)
 
@@ -41,7 +43,10 @@ sequenceDiagram
     K->>LP: swapExactAmountOut(全部可清算收益)
     LP->>PP: PRIZE 注入奖池
     LP->>K: USDC 收益转给清算者
-    K->>PP: evm_increaseTime(1d) + awardDraw(randomNumber)
+    K->>RR: requestDraw()
+    RR->>VRF: requestRandomWords
+    VRF-->>RR: fulfillRandomWords(randomNumber)
+    RR->>PP: awardDraw(randomNumber)
     PP-->>FE: DrawAwarded 事件(getLogs 拉取)
     U->>FE: /account 看到可领取奖金
     U->>PP: claimPrize(winner,tier,drawId) ×3 档
@@ -102,12 +107,14 @@ export USER1=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
 export USER2=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
 export LIQ=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 
-# 从 .env.local 自动读取 7 个地址
+# 从 .env.local 自动读取 9 个地址
 USDC=$(grep '^NEXT_PUBLIC_USDC=' frontend/.env.local | cut -d= -f2)
 PRIZE=$(grep '^NEXT_PUBLIC_PRIZE_TOKEN=' frontend/.env.local | cut -d= -f2)
 YIELD=$(grep '^NEXT_PUBLIC_YIELD_VAULT=' frontend/.env.local | cut -d= -f2)
 TWAB=$(grep '^NEXT_PUBLIC_TWAB_CONTROLLER=' frontend/.env.local | cut -d= -f2)
 POOL=$(grep '^NEXT_PUBLIC_PRIZE_POOL=' frontend/.env.local | cut -d= -f2)
+RNG_RELAY=$(grep '^NEXT_PUBLIC_RNG_RELAY=' frontend/.env.local | cut -d= -f2)
+VRF=$(grep '^NEXT_PUBLIC_VRF_COORDINATOR=' frontend/.env.local | cut -d= -f2)
 VAULT=$(grep '^NEXT_PUBLIC_PRIZE_VAULT=' frontend/.env.local | cut -d= -f2)
 PAIR=$(grep '^NEXT_PUBLIC_LIQUIDATION_PAIR=' frontend/.env.local | cut -d= -f2)
 
@@ -241,30 +248,38 @@ cast call $VAULT  "liquidatableBalanceOf()(uint256)"  --rpc-url $RPC
 
 ### 6.3 开奖校验（含两个异常）
 
+开奖入口现在是 **RngRelay**（PrizePool 的 drawManager），随机数来自 Chainlink VRF。本地 mock 需手动触发 `fulfillRandomWords` 回调。
+
 ```bash
-# a) 未到点开奖 → 必须 revert PrizePoolDrawNotReady
-cast send $POOL "awardDraw(uint256)" 20261023 \
+# a) 未到点请求开奖 → 必须 revert RngRelayDrawNotReady
+cast send $RNG_RELAY "requestDraw()" \
   --rpc-url $RPC --private-key $PK0
 
-# b) 到点后用非 drawManager（#1）开奖 → 必须 revert PrizePoolOnlyDrawManager
+# b) 直接调用 PrizePool.awardDraw（非 drawManager）→ 必须 revert PrizePoolOnlyDrawManager
+#    drawManager = RngRelay，任何外部账户直调 awardDraw 均被拒
 cast rpc evm_increaseTime 86400 --rpc-url $RPC
 cast rpc evm_mine --rpc-url $RPC
 cast send $POOL "awardDraw(uint256)" 20261023 \
-  --rpc-url $RPC --private-key $PK1
+  --rpc-url $RPC --private-key $PK0
 
-# c) 正确姿势：drawManager（#0）注入随机数
-cast send $POOL "awardDraw(uint256)" 20261023 \
+# c) 正确姿势：通过 RngRelay 请求 VRF，本地 mock 手动 fulfill 回调
+cast send $RNG_RELAY "requestDraw()" \
+  --rpc-url $RPC --private-key $PK0
+# 从 RngRelay 读取在途 requestId
+REQ_ID=$(cast call $RNG_RELAY "pendingRequestId()(uint256)" --rpc-url $RPC)
+# 本地 mock：用 deployer #0 直接触发 VRF coordinator 回调（真实链上由 Chainlink 节点完成）
+cast send $VRF "fulfillRandomWords(uint256,address)" $REQ_ID $RNG_RELAY \
   --rpc-url $RPC --private-key $PK0
 ```
 
-预期：c) 成功并发出 `DrawAwarded(drawId=1, winningRandomNumber=20261023, drawAmount≈100e18)`；a)/b) 分别带 `PrizePoolDrawNotReady` / `PrizePoolOnlyDrawManager` revert。
+预期：c) 成功并发出 `DrawAwarded(drawId=1, winningRandomNumber=VRF 随机数, drawAmount≈100e18)`；a)/b) 分别带 `RngRelayDrawNotReady` / `PrizePoolOnlyDrawManager` revert。
 
 ### 6.4 前端核对开奖结果
 
 | 用例 | 位置 | 预期 |
 |------|------|------|
 | TC-DRAW-01 | `/prizes` | 奖池总额约 100 PRIZE；倒计时在开奖瞬间短暂出现「已开奖」，随后进入 draw 2 的 ~1d 倒计时；3 档结构显示 Grand×1（60%）/次级×4（25%）/Canary×100（15%） |
-| TC-DRAW-02 | `/prizes` 或开奖历史区 | draw 1 记录：随机数 `20261023`、奖池金额与链上一致（`getContractEvents` 拉取，非 subgraph） |
+| TC-DRAW-02 | `/prizes` 或开奖历史区 | draw 1 记录：随机数为 VRF 返回的非零值（非固定）、奖池金额与链上一致（`getContractEvents` 拉取，非 subgraph） |
 | TC-DRAW-03 | `/draw/1` | 展示 draw 1 的随机数/时间窗口/奖金档位 |
 
 ### 6.5 领奖（唯一存款人必中全部 3 档）
@@ -314,7 +329,7 @@ cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER1 1 1 -
 2. `cast rpc evm_increaseTime 43200 --rpc-url $RPC && cast rpc evm_mine --rpc-url $RPC`（过半周期）。
 3. #2 铸 1000 USDC 并存入 1000。
 4. 用 #0 完成捐赠+清算（此时荷兰拍价格 ≈ 0.5e18，注入奖池的 PRIZE 约为满价一半，属预期）。
-5. 再快进 43200 秒后由 #0 `awardDraw`。
+5. 再快进 43200 秒后由 #0 调 `requestDraw()` + `fulfillRandomWords` 完成开奖。
 6. 对比各档可领金额（建议看次级档/Canary 档，Grand 档只有 1 个 slot 是 0/1 二值）：
 
    ```bash
@@ -365,7 +380,7 @@ cast call $POOL "getClaimableAmount(address,uint8,uint32)(uint256)" $USER1 1 1 -
 | 页面整体读不到合约（「奖池未部署或地址未配置」、转圈） | `.env.local` 为空或 dev server 在回填前已启动 → 重跑 `pnpm deploy:local` 并**重启** `pnpm frontend:dev`；另确认起链走的是 `pnpm chain`（注入 Multicall3）而非裸 `anvil` |
 | 重启 anvil 后钱包交易一直 pending / nonce 报错 | 链重置但 MetaMask 保留旧状态 → 钱包「设置 → 高级 → 清除活动账户数据」，再重跑 §4 |
 | `/account` 刚存款后看不到可领奖金 | 需要先完成 §6（清算 + 到点开奖）；TWAB 只覆盖存款之后的时间窗口，这是防闪电存款的预期行为 |
-| `awardDraw` revert `PrizePoolDrawNotReady` | 时间未到：`nextDrawStart() = 部署时间戳 + 1 天 × 期数`，先 `evm_increaseTime` 再 `evm_mine` |
-| `awardDraw` revert `PrizePoolOnlyDrawManager` | 私钥用错；初始 drawManager 是部署者 #0，换人需先由 owner 调 `setDrawManager` |
+| `requestDraw` revert `RngRelayDrawNotReady` | 时间未到：`nextDrawStart() = 部署时间戳 + 1 天 × 期数`，先 `evm_increaseTime` 再 `evm_mine` |
+| `awardDraw` revert `PrizePoolOnlyDrawManager` | 直调 PrizePool 被拒；开奖入口是 RngRelay（drawManager），须走 `requestDraw()` |
 | 荷兰拍价格与预期不符 | `price = startPrice × (周期结束 − now) / 周期长度`，周期内随时间衰减；部署后尽快清算即接近满价 |
 | 前端 BigInt/构建类报错 | Next 16 下禁用 BigInt 字面量（`0n`），须用 `BigInt(...)`；属代码问题，不应在联调中出现，出现即回归失败 |

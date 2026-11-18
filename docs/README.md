@@ -28,5 +28,5 @@
 |-----|------|------|
 | [ADR-0001](./decisions/ADR-0001-pnpm-monorepo-contracts-excluded.md) | pnpm monorepo，contracts 不入 workspace | 已接受 |
 | [ADR-0002](./decisions/ADR-0002-foundry-solc.md) | Foundry + Solidity 0.8.24 + OZ v5 | 已接受 |
-| [ADR-0003](./decisions/ADR-0003-keeper-injected-rng-over-pfda.md) | M0 白名单 keeper 注入随机数，不做 PFDA/VRF | 已接受 |
+| [ADR-0003](./decisions/ADR-0003-keeper-injected-rng-over-pfda.md) | M0 白名单 keeper 注入随机数，不做 PFDA/VRF | 已废弃 |
 | [ADR-0004](./decisions/ADR-0004-single-asset-usdc.md) | M0 单资产 USDC + 单一奖币 | 已接受 |

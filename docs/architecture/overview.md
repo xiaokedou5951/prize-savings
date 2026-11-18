@@ -24,7 +24,7 @@ flowchart TB
     end
 
     subgraph BOT["keeper（脚手架，未实现）"]
-        bot["清算 + 注入随机数开奖"]
+        bot["清算 + 触发 VRF 开奖"]
     end
 
     subgraph IDX["subgraph（脚手架，未实现）"]

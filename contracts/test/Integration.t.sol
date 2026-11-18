@@ -12,6 +12,8 @@ import { ObservationTwabController } from "../src/TwabController/ObservationTwab
 import { PrizeVault } from "../src/PrizeVault/PrizeVault.sol";
 import { PrizePool } from "../src/PrizePool/PrizePool.sol";
 import { LiquidationPair } from "../src/LiquidationPair/LiquidationPair.sol";
+import { RngRelay } from "../src/RngRelay/RngRelay.sol";
+import { VRFCoordinatorV2_5Mock } from "@chainlink/contracts/src/v0.8/vrf/mocks/VRFCoordinatorV2_5Mock.sol";
 
 /// @notice 端到端闭环测试：两种 TWAB 实现各跑一遍。
 ///        存款 → 收益 → 清算入池 → 开奖 → 领奖 → 赎回本金。
@@ -23,6 +25,9 @@ abstract contract IntegrationTest is Test {
     PrizeVault internal vault;
     PrizePool internal pool;
     LiquidationPair internal pair;
+    VRFCoordinatorV2_5Mock internal vrfCoordinator;
+    RngRelay internal rngRelay;
+    uint256 internal vrfSubId;
 
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
@@ -41,9 +46,17 @@ abstract contract IntegrationTest is Test {
         yieldVault = new MockERC4626(asset);
         twab = _deployTwab();
 
-        pool = new PrizePool(prizeToken, twab, PERIOD, OFFSET, KEEPER);
+        pool = new PrizePool(prizeToken, twab, PERIOD, OFFSET, OWNER);
         vault = new PrizeVault(asset, yieldVault, twab, "Prize Vault", "pvUSDC", OWNER);
         TwabController(address(twab)).setVault(address(vault));
+
+        // VRF mock + RngRelay（作为 PrizePool 的 drawManager）
+        vrfCoordinator = new VRFCoordinatorV2_5Mock(0, 1e9, 1e18);
+        vrfSubId = vrfCoordinator.createSubscription();
+        vrfCoordinator.fundSubscriptionWithNative{ value: 10 ether }(vrfSubId);
+        rngRelay = new RngRelay(address(vrfCoordinator), pool, keccak256("keyHash"), vrfSubId, 3, 500_000);
+        vrfCoordinator.addConsumer(vrfSubId, address(rngRelay));
+        pool.setDrawManager(address(rngRelay));
 
         pair = new LiquidationPair(prizeToken, asset, vault, PERIOD, OFFSET, 1e18, address(pool));
         vm.prank(OWNER);
@@ -88,25 +101,22 @@ abstract contract IntegrationTest is Test {
         uint256 amountIn = pair.swapExactAmountOut(liquidatable, LIQUIDATOR);
         assertGt(amountIn, 0, "prize injected");
 
-        // 开奖
+        // 开奖：经 RngRelay 请求 VRF → mock 回调完成 awardDraw
         vm.warp(OFFSET + PERIOD);
-        vm.prank(KEEPER);
-        uint32 drawId = pool.awardDraw(20240928);
-        assertEq(drawId, 1);
+        uint256 requestId = rngRelay.requestDraw();
+        vrfCoordinator.fulfillRandomWords(requestId, address(rngRelay));
 
-        // 至少一人具备大奖领取资格（Alice 或 Bob 之一）
-        uint256 alicePrize = pool.getClaimableAmount(ALICE, 0, 1);
-        uint256 bobPrize = pool.getClaimableAmount(BOB, 0, 1);
-        assertGt(alicePrize + bobPrize, 0, "someone eligible for grand prize");
+        // tier 1（2 个奖位）在两人各占 50% TWAB 时每人恰好 1 个，不受随机数影响
+        uint256 alicePrize = pool.getClaimableAmount(ALICE, 1, 1);
+        uint256 bobPrize = pool.getClaimableAmount(BOB, 1, 1);
+        assertGt(alicePrize, 0, "alice eligible for tier-1 prize");
+        assertGt(bobPrize, 0, "bob eligible for tier-1 prize");
 
-        // 大奖只有 1 份：领取其一；另一人的同档奖金被预算封顶（若超额则 revert 或得 0）
-        if (alicePrize > 0) {
-            uint256 claimed = pool.claimPrize(ALICE, 0, 1);
-            assertGt(claimed, 0, "grand prize paid");
-        } else {
-            uint256 claimed = pool.claimPrize(BOB, 0, 1);
-            assertGt(claimed, 0, "grand prize paid");
-        }
+        // 领取 tier-1 奖金
+        uint256 aliceClaimed = pool.claimPrize(ALICE, 1, 1);
+        assertGt(aliceClaimed, 0, "tier-1 prize paid to alice");
+        uint256 bobClaimed = pool.claimPrize(BOB, 1, 1);
+        assertGt(bobClaimed, 0, "tier-1 prize paid to bob");
 
         // 本金随时可赎回
         uint256 aliceShares = vault.balanceOf(ALICE);

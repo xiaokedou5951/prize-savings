@@ -50,9 +50,13 @@ PRIZE_TOKEN=$(extract_address "PrizeToken")
 YIELD_VAULT=$(extract_address "YieldVault")
 TWAB_CONTROLLER=$(extract_address "Twab")
 PRIZE_POOL=$(extract_address "PrizePool")
+RNG_RELAY=$(extract_address "RngRelay")
 PRIZE_VAULT=$(extract_address "PrizeVault")
 LIQUIDATION_PAIR=$(extract_address "LiqPair")
 YV_TYPE=$(sed -n 's/^[[:space:]]*YvType[[:space:]]*: *//p' "$OUT_FILE" | tail -n 1 || true)
+
+# Base Sepolia Chainlink VRF v2.5 Coordinator（Chainlink 官方地址，非我们部署）
+VRF_COORDINATOR=0x5D292299385dDa5728b528490209481c887F517d
 
 MISSING=()
 for pair in \
@@ -61,6 +65,8 @@ for pair in \
   "NEXT_PUBLIC_YIELD_VAULT=$YIELD_VAULT" \
   "NEXT_PUBLIC_TWAB_CONTROLLER=$TWAB_CONTROLLER" \
   "NEXT_PUBLIC_PRIZE_POOL=$PRIZE_POOL" \
+  "NEXT_PUBLIC_RNG_RELAY=$RNG_RELAY" \
+  "NEXT_PUBLIC_VRF_COORDINATOR=$VRF_COORDINATOR" \
   "NEXT_PUBLIC_PRIZE_VAULT=$PRIZE_VAULT" \
   "NEXT_PUBLIC_LIQUIDATION_PAIR=$LIQUIDATION_PAIR"; do
   val=${pair#*=}
@@ -96,6 +102,8 @@ else
   set_var NEXT_PUBLIC_YIELD_VAULT "$YIELD_VAULT"
   set_var NEXT_PUBLIC_TWAB_CONTROLLER "$TWAB_CONTROLLER"
   set_var NEXT_PUBLIC_PRIZE_POOL "$PRIZE_POOL"
+  set_var NEXT_PUBLIC_RNG_RELAY "$RNG_RELAY"
+  set_var NEXT_PUBLIC_VRF_COORDINATOR "$VRF_COORDINATOR"
   set_var NEXT_PUBLIC_PRIZE_VAULT "$PRIZE_VAULT"
   set_var NEXT_PUBLIC_LIQUIDATION_PAIR "$LIQUIDATION_PAIR"
   if [ -n "$EXISTING_PROJECT_ID" ]; then
@@ -111,6 +119,8 @@ echo "  PrizeToken        $PRIZE_TOKEN"
 echo "  YieldVault        $YIELD_VAULT"
 echo "  TwabController    $TWAB_CONTROLLER"
 echo "  PrizePool         $PRIZE_POOL"
+echo "  RngRelay          $RNG_RELAY"
+echo "  VrfCoordinator    $VRF_COORDINATOR"
 echo "  PrizeVault        $PRIZE_VAULT"
 echo "  LiquidationPair   $LIQUIDATION_PAIR"
 echo ""
