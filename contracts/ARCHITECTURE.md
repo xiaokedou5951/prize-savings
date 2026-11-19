@@ -31,7 +31,8 @@ test/                     # 单元 / fuzz 不变量 / 端到端
 
 | 文件 | 覆盖 |
 |------|------|
-| [Invariants.t.sol](test/Invariants.t.sol) | fuzz：存取款/收益注入任意序列下零损失 + 份额守恒 |
+| [Invariants.t.sol](test/Invariants.t.sol) | fuzz 单测：存取款/收益注入任意序列下零损失 + 份额守恒 |
+| [InvariantsHandler.t.sol](test/InvariantsHandler.t.sol) | handler 状态机 fuzz（`[invariant] runs=256 depth=15`）：存款/赎回/转账/收益/注池/开奖/领奖 7 动作随机序列，断言三条全局不变量——零损失、份额守恒、TWAB 历史只读；Simple 与 Observation 两种实现各跑一遍 |
 | [Integration.t.sol](test/Integration.t.sol) | 端到端闭环，两种 TWAB 实现各跑一遍 |
 | [PrizeVault.t.sol](test/PrizeVault.t.sol) | 存赎 roundtrip、harvest 后可清算额、权限 |
 | [PrizePool.t.sol](test/PrizePool.t.sol) | 到期/权限开奖、3 档分布、重复领取防护、零供应 |
@@ -41,7 +42,7 @@ test/                     # 单元 / fuzz 不变量 / 端到端
 | [AaveYieldVault.t.sol](test/AaveYieldVault.t.sol) | 适配器：1:1 存赎 roundtrip、计息按份额均摊、maxRedeem/allowance 语义、通胀攻击防护（无 seed 受害者 revert / 有 seed 损失 ≤1‰）、构造器 aToken 市场校验 |
 | [ForkStataYield.t.sol](test/ForkStataYield.t.sol) | Base 主网 fork：StataToken 存赎、Aave 惰性计息（warp 后 liquidatable 不变、poke 后 >0）；未设 `BASE_RPC_URL` 时自动 skip |
 
-> 待补：以 Foundry `invariant` handler 做真正的状态机 fuzz（当前为 fuzz 单测形态）。fork 测试需 `BASE_RPC_URL` 环境变量（主网 RPC），默认套件中该文件 skip，属预期。
+> `InvariantsHandler.t.sol` 是 handler 状态机 fuzz：随机调用 7 个动作后断言三条全局不变量；每次 `awardDraw` 后快照全部 actor×tier 的 `getClaimableAmount`，后续动作不得改变历史值（不变量 3）。已通过 mutator 校验：把 `_getTwabBetween` 篡改为返回当前余额，`invariant_twabReadonlyHistory` 立即可复现失败。fork 测试需 `BASE_RPC_URL` 环境变量（主网 RPC），默认套件中该文件 skip，属预期。
 
 ## 常用命令
 

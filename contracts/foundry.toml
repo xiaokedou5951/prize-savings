@@ -20,3 +20,10 @@ local = "http://127.0.0.1:8545"
 # Base 主网 / Base Sepolia：RPC URL 从环境变量读取，不入库（fork 测试与测试网部署用）
 base = "${BASE_RPC_URL}"
 base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
+
+[invariant]
+# handler-based 状态机 fuzz：每条不变量跑 256 轮、每轮最多 15 个随机动作；
+# 动作 revert 不视为失败（仅跳过），保证边界守卫下的覆盖率。
+runs = 256
+depth = 15
+fail_on_revert = false
