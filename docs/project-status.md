@@ -105,7 +105,7 @@ Next.js 16（App Router, Turbopack）+ React 19 + TS strict + Tailwind v4，Web3
 
 已建立 [.github/workflows/ci.yml](../.github/workflows/ci.yml)，`push` 到 `main` 与 `pull_request` 触发，三个并行 job：
 
-- **contracts**：安装 Foundry 工具链 → 缓存 `contracts/lib`（cache key 钉在 `contracts/install-deps.sh` 的 sha256）→ `bash contracts/install-deps.sh`（缓存未命中时）→ `forge fmt --check` → `forge build` → `forge test` → 重新生成 ABI 并 `git diff --exit-code` 校验无漂移。
+- **contracts**：安装 Foundry 工具链（钉 `1.5.1`，与本地一致，避免新版 stable 改变继承 invariant 的发现行为）→ 缓存 `contracts/lib`（cache key 钉在 `contracts/install-deps.sh` 的 sha256）→ `bash contracts/install-deps.sh`（缓存未命中时）→ `forge fmt --check` → `forge build` → `forge test` → 重新生成 ABI 并 `git diff --exit-code` 校验无漂移。
 - **frontend**：node 22 + pnpm 10.33.0 → `pnpm install --frozen-lockfile` → `pnpm frontend:build`。
 - **keeper**：同上 → `pnpm keeper:build`。
 

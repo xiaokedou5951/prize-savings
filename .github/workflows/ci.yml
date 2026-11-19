@@ -18,6 +18,11 @@ jobs:
 
       - name: Install Foundry toolchain
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # 钉到与本地一致的 1.5.1：新版 stable 对继承自 abstract base 的 invariant
+          # 测试发现行为有变（handler 套件每套件只跑 1 条而非 3 条），钉版本保证 CI
+          # 与本地跑同一套 58 个测试（含 handler 状态机的 3×2 不变量 fuzz）。
+          version: 1.5.1
 
       - name: Cache forge dependencies
         id: cache-forge-lib
