@@ -1,6 +1,6 @@
 # Prize Savings 项目状态快照
 
-> 快照时间：2026-11-19 · 对应 commit：`639c05b`（main 分支，版本 0.4.4，建立 CI 流水线，含 P0-1/P0-2）
+> 快照时间：2026-11-19 · 对应 commit：`f35e08e`（main 分支，版本 0.4.4，建立 CI 流水线，含 P0-1/P0-2）
 > 本文件是**时间点快照**，记录项目当前完成度、验证硬证据、已知缺口与下一步规划，便于后续参考与交接。它不替代活文档：系统架构见 [architecture/overview.md](./architecture/overview.md)，冻结设计见 [prd/prize-savings-lottery-design.md](./prd/prize-savings-lottery-design.md)。
 
 ---
@@ -130,7 +130,7 @@ Next.js 16（App Router, Turbopack）+ React 19 + TS strict + Tailwind v4，Web3
 | 0.4.1 | `d5ff32f` | RngRelay 合约集成 Chainlink VRF v2.5 随机数开奖 |
 | 0.4.2 | `5129e5d` | 添加项目状态快照文档并更新 README 链接 |
 | **0.4.3** | **`0d8d896`** | 新增 handler 状态机不变量 fuzz 测试（P0-1）并更新相关配置文档 |
-| **0.4.4** | **`639c05b`** | 建立 CI 流水线（P0-3）：`.github/workflows/ci.yml` 三 job + `contracts/install-deps.sh` 钉住依赖（修正 chainlink → chainlink-evm 仓库）；更新项目状态文档（当前最新） |
+| **0.4.4** | **`f35e08e`** | 建立 CI 流水线（P0-3）：`.github/workflows/ci.yml` 三 job（contracts fmt/build/test/ABI diff + frontend:build + keeper:build）；`contracts/install-deps.sh` 钉住依赖（chainlink-evm tag `contracts-v1.5.0`，`chainlink=` 前缀装到 `lib/chainlink/` 与 remappings 对齐）；foundry 工具链钉 `1.5.1` 保证 CI 与本地跑同一套 58 测试；更新项目状态文档（当前最新） |
 
 分支：`main`（当前）、`v0.2.6`、`v0.3.2`。
 
