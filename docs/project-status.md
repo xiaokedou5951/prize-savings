@@ -1,6 +1,6 @@
 # Prize Savings 项目状态快照
 
-> 快照时间：2026-11-19 · 对应 commit：`0d8d896`（main 分支，版本 0.4.3，含 P0-1）+ 工作区 P0-2（文档漂移修正）
+> 快照时间：2026-11-19 · 对应 commit：`__P0-3_HASH__`（main 分支，版本 0.4.4，建立 CI 流水线，含 P0-1/P0-2）
 > 本文件是**时间点快照**，记录项目当前完成度、验证硬证据、已知缺口与下一步规划，便于后续参考与交接。它不替代活文档：系统架构见 [architecture/overview.md](./architecture/overview.md)，冻结设计见 [prd/prize-savings-lottery-design.md](./prd/prize-savings-lottery-design.md)。
 
 ---
@@ -25,7 +25,7 @@
 | 文档体系 | ✅ 已对齐 | ~85% | PRD/ADR/architecture/E2E 完整；P0-2 已修正 overview 的 VRF/收益源漂移（G6 关闭） |
 | `keeper` | ⬜ 脚手架 | ~5% | [src/index.ts](../keeper/src/index.ts) 仅空 `main()`，清算/开奖逻辑未实现 |
 | `subgraph` | ⬜ 空脚手架 | ~5% | [schema.graphql](../subgraph/schema.graphql) 仅注释，`dataSources: []` |
-| CI | ⬜ 无 | 0% | 仓库无 `.github/workflows/`，验证全靠人工 |
+| CI | ✅ 已建立 | ~100% | [.github/workflows/ci.yml](../.github/workflows/ci.yml)：contracts（fmt+build+test+ABI 生成物 diff）/ frontend:build / keeper:build 三 job 并行；PR 全绿（分支保护需在仓库后台开启） |
 
 > 完成度为综合评估（功能覆盖 + 验证证据 + 文档同步），非精确度量。
 
@@ -35,6 +35,7 @@
 |--------|------|------|
 | 合约编译 + 测试 | `forge test --root contracts` | **58 passed / 0 failed / 1 skipped**（13 个 test suite；`ForkStataYield` 因无 `BASE_RPC_URL` 预期 skip） |
 | 前端生产构建 | `pnpm frontend:build` | ✅ Next 16.3.6（Turbopack）编译通过，TypeScript 严格检查通过，7 个页面生成（含 `/`、`/vault`、`/prizes`、`/account`、`/draw/[drawId]`） |
+| CI 流水线 | `.github/workflows/ci.yml`（push/PR 触发） | ✅ 三 job 并行：contracts（`forge fmt --check` + build + test + ABI 生成物无 diff）/ frontend:build / keeper:build；干净环境复验 58 passed / 0 failed / 1 skipped |
 
 合约测试套件明细（来自 `forge test` 实跑输出）：
 
@@ -102,7 +103,15 @@ Next.js 16（App Router, Turbopack）+ React 19 + TS strict + Tailwind v4，Web3
 
 ### 3.6 CI
 
-无。仓库无 `.github/workflows/`。所有验证（`forge test`、`frontend:build`、`forge fmt --check`、ABI 生成物 diff）均靠人工执行，无防回归流水线。
+已建立 [.github/workflows/ci.yml](../.github/workflows/ci.yml)，`push` 到 `main` 与 `pull_request` 触发，三个并行 job：
+
+- **contracts**：安装 Foundry 工具链 → 缓存 `contracts/lib`（cache key 钉在 `contracts/install-deps.sh` 的 sha256）→ `bash contracts/install-deps.sh`（缓存未命中时）→ `forge fmt --check` → `forge build` → `forge test` → 重新生成 ABI 并 `git diff --exit-code` 校验无漂移。
+- **frontend**：node 22 + pnpm 10.33.0 → `pnpm install --frozen-lockfile` → `pnpm frontend:build`。
+- **keeper**：同上 → `pnpm keeper:build`。
+
+依赖安装的单一事实源是 [contracts/install-deps.sh](../contracts/install-deps.sh)，钉住 `forge-std@v1.9.6` / `openzeppelin-contracts@v5.0.0` / `chainlink-evm@v1.5.0`（Chainlink 已将 Solidity 合约拆分到独立仓库 `smartcontractkit/chainlink-evm`，原 `smartcontractkit/chainlink` v2.x 无 `contracts/` 目录），解决干净检出后 `contracts/lib/`（已 gitignore）缺失导致无法编译的可复现性缺口。无需任何密钥：fork 测试缺 `BASE_RPC_URL` 自动 skip，前端 build 有 env 兜底。
+
+> 注意："PR 必须全绿"的分支保护规则（Settings → Branches → Require status checks to pass before merging）是 GitHub 仓库**设置项**，不在 workflow 文件内，需在仓库后台手动开启。
 
 ---
 
@@ -120,7 +129,8 @@ Next.js 16（App Router, Turbopack）+ React 19 + TS strict + Tailwind v4，Web3
 | 0.3.2–0.3.2.3 | `d22ff8f`…`dfb5c0d` | 未知链 env 解析部署地址 + 修复 eth_getLogs 区块范围超限 + 清理临时 fork 配置 |
 | 0.4.1 | `d5ff32f` | RngRelay 合约集成 Chainlink VRF v2.5 随机数开奖 |
 | 0.4.2 | `5129e5d` | 添加项目状态快照文档并更新 README 链接 |
-| **0.4.3** | **`0d8d896`** | **新增 handler 状态机不变量 fuzz 测试（P0-1）并更新相关配置文档**（当前最新） |
+| **0.4.3** | **`0d8d896`** | 新增 handler 状态机不变量 fuzz 测试（P0-1）并更新相关配置文档 |
+| **0.4.4** | **`__P0-3_HASH__`** | 建立 CI 流水线（P0-3）：`.github/workflows/ci.yml` 三 job + `contracts/install-deps.sh` 钉住依赖（修正 chainlink → chainlink-evm 仓库）；更新项目状态文档（当前最新） |
 
 分支：`main`（当前）、`v0.2.6`、`v0.3.2`。
 
@@ -148,7 +158,7 @@ Next.js 16（App Router, Turbopack）+ React 19 + TS strict + Tailwind v4，Web3
 | **G2** | keeper 未实现 | 🔴 高 | 测试网无人值守则不会自动开奖/清算，"测试网运行"不成立 |
 | **G3** | M0 集成"测试网运行"无落地证据 | 🔴 高 | 路径 D（真实 Base Sepolia）只有 runbook；`DEPLOYMENTS[84532]` 未回填；[manual-e2e 执行记录表](./testing/manual-e2e-v2.1.md) 为空；真实 VRF 回调未验证 |
 | **G4** | subgraph 未实现 | 🟠 中高 | 前端历史数据靠 `getContractEvents`，仅 anvil 可用；测试网/主网必然再撞 eth_getLogs 区块范围限制（0.3.2.2 已修过一次） |
-| **G5** | 无 CI | 🟡 中 | 无自动化测试/构建/lint 防回归 |
+| **G5** | 无 CI | ✅ 已修复（P0-3） | [.github/workflows/ci.yml](../.github/workflows/ci.yml) 三 job 覆盖 contracts/frontend/keeper 防回归；[contracts/install-deps.sh](../contracts/install-deps.sh) 钉住依赖版本解决干净检出无法编译；"PR 必须全绿"的分支保护需在 GitHub 仓库后台手动开启 |
 | **G6** | 文档漂移 | ✅ 已修复（P0-2） | [overview.md](./architecture/overview.md) 已更新为 VRF 已集成 + 收益源三档回退；[docs/README.md](./README.md) ADR 索引已含 ADR-0005；全仓 grep 无"不做 VRF"残留矛盾 |
 | **G7** | M1/M2/M3 未开始 | — | 审计、主网上线（M1）；多资产/多 vault/Claimer/自动派奖（M2）；无许可 vault factory + PFDA（M3）。见 PRD 第 11 节 |
 
@@ -164,7 +174,7 @@ Next.js 16（App Router, Turbopack）+ React 19 + TS strict + Tailwind v4，Web3
 |---|------|----------|
 | ✅ P0-1 | 不变量 3 fuzz + 真正的状态机 handler fuzz | 已完成：新增 `InvariantsHandler.t.sol` handler 测试，3 条不变量 × Simple/Observation 双实现各 256 runs 通过，已 mutator 校验非空 |
 | ✅ P0-2 | 修正文档漂移 | 已完成：[overview.md](./architecture/overview.md) 更新为 VRF 已集成 + 收益源三档回退；[docs/README.md](./README.md) ADR 索引已含 ADR-0005；grep 全仓无"不做 VRF"残留矛盾 |
-| P0-3 | 建立 CI 流水线 | `.github/workflows/ci.yml`：`forge build/test`、ABI 生成物无 diff 校验、`frontend:build`、`keeper:build`、`forge fmt --check`；PR 必须全绿 |
+| ✅ P0-3 | 建立 CI 流水线 | 已完成：`.github/workflows/ci.yml` 三 job（contracts fmt/build/test/ABI diff + frontend:build + keeper:build）；`contracts/install-deps.sh` 钉住依赖（chainlink-evm 仓库修正）；干净环境复验 58 passed / 1 skipped；分支保护需仓库后台开启 |
 
 ### P1 · M0 集成落地——真实测试网跑通（1 天，需测试网资源）
 
