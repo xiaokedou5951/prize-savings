@@ -31,7 +31,7 @@ flowchart TB
         idx["Draw / Claim 历史索引"]
     end
 
-    yv["底层 ERC-4626 收益源<br/>M0 为 MockERC4626"]
+    yv["底层 ERC-4626 收益源<br/>StataToken / AaveYieldVault / Mock（本地）"]
     chain[("anvil 本地链 · chainId 31337")]
 
     user --> pages
@@ -58,7 +58,7 @@ flowchart LR
     A[1. 存款 USDC<br/>1:1 铸造 pvUSDC 份额] --> B[2. 资产投入底层<br/>yieldVault 产生收益]
     B --> C[3. 清算者付奖币<br/>LiquidationPair 买走 yield]
     C --> D[4. 奖币直转 PrizePool<br/>成为当期奖金]
-    D --> E[5. 每日 awardDraw<br/>按历史 TWAB 抽样固化]
+    D --> E[5. RngRelay 请求 VRF<br/>回调 awardDraw 按历史 TWAB 抽样固化]
     E --> F[6. 中奖者 claimPrize<br/>主动领取]
     F --> G[7. 本金随时<br/>redeem/withdraw 赎回]
 ```
@@ -78,7 +78,8 @@ flowchart LR
 ## 关键架构权衡（M0）
 
 1. **窄而深**：单链（anvil）、单资产 USDC、单一奖币，先验证公平性与闭环（[ADR-0004](../decisions/ADR-0004-single-asset-usdc.md)）。
-2. **信任化开奖替代 PFDA**：随机数由白名单 `drawManager`（keeper）注入，不做 Chainlink VRF/PFDA 拍卖，砍掉最大复杂度（[ADR-0003](../decisions/ADR-0003-keeper-injected-rng-over-pfda.md)）。
+2. **VRF 驱动开奖**：随机数来自 Chainlink VRF v2.5，`RngRelay` 作为 `drawManager` 在 `requestDraw()` 触发 VRF 回调后调用 `PrizePool.awardDraw`；随机数仅作 TWAB 加权抽样的种子，keeper/owner 无法预知或选择性开奖（[ADR-0003](../decisions/ADR-0003-keeper-injected-rng-over-pfda.md) 已废弃，原"白名单注入随机数"方案被本实现取代）。
 3. **份额恒等映射**：`convertToShares/assets` 为 1:1，收益不摊回份额、以超额资产形式留存待清算，零损失证明退化为减法不等式。
 4. **TWAB 双实现可插拔**：`SimpleTwabController`（追加 checkpoint/线性扫描，默认）与 `ObservationTwabController`（2^16 环形缓冲/二分）共用 `ITwabController`，部署时用 `TWAB_MODE` 切换。
 5. **contracts 不进 workspace**：Foundry 工程无 Node 构建需求，ABI 通过共享 SDK 单向输出给 TS 模块（[ADR-0001](../decisions/ADR-0001-pnpm-monorepo-contracts-excluded.md)）。
+6. **收益源三档回退**：底层 ERC-4626 收益源按 现成 Aave StataToken（主路径）> 自研 `AaveYieldVault` 适配器 > `MockERC4626`（仅本地链）选择，非本地链缺配置一律 revert、不静默降级（[ADR-0005](../decisions/ADR-0005-yield-source-stata-first.md)）。

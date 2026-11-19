@@ -1,6 +1,6 @@
 # Prize Savings 项目状态快照
 
-> 快照时间：2026-11-19 · 对应 commit：`d5ff32f`（main 分支，版本 0.4.1）
+> 快照时间：2026-11-19 · 对应 commit：`0d8d896`（main 分支，版本 0.4.3，含 P0-1）+ 工作区 P0-2（文档漂移修正）
 > 本文件是**时间点快照**，记录项目当前完成度、验证硬证据、已知缺口与下一步规划，便于后续参考与交接。它不替代活文档：系统架构见 [architecture/overview.md](./architecture/overview.md)，冻结设计见 [prd/prize-savings-lottery-design.md](./prd/prize-savings-lottery-design.md)。
 
 ---
@@ -22,7 +22,7 @@
 | `contracts` | ✅ 闭环完成 | ~90% | 核心合约 + RngRelay(VRF) + 三档收益源 + 测试全绿 |
 | `packages/contracts` | ✅ 可用 | ~90% | ABI 常量 + 部署地址 SSOT，前端源码直编消费 |
 | `frontend` | ✅ MVP 可构建 | ~80% | 5 路由，存/取/领奖/奖池展示，生产构建通过 |
-| 文档体系 | ⚠️ 有漂移 | ~75% | PRD/ADR/architecture/E2E 完整，但 overview 与代码不同步 |
+| 文档体系 | ✅ 已对齐 | ~85% | PRD/ADR/architecture/E2E 完整；P0-2 已修正 overview 的 VRF/收益源漂移（G6 关闭） |
 | `keeper` | ⬜ 脚手架 | ~5% | [src/index.ts](../keeper/src/index.ts) 仅空 `main()`，清算/开奖逻辑未实现 |
 | `subgraph` | ⬜ 空脚手架 | ~5% | [schema.graphql](../subgraph/schema.graphql) 仅注释，`dataSources: []` |
 | CI | ⬜ 无 | 0% | 仓库无 `.github/workflows/`，验证全靠人工 |
@@ -33,7 +33,7 @@
 
 | 验证项 | 命令 | 结果 |
 |--------|------|------|
-| 合约编译 + 测试 | `forge test --root contracts` | **52 passed / 0 failed / 1 skipped**（11 个 test suite；`ForkStataYield` 因无 `BASE_RPC_URL` 预期 skip） |
+| 合约编译 + 测试 | `forge test --root contracts` | **58 passed / 0 failed / 1 skipped**（13 个 test suite；`ForkStataYield` 因无 `BASE_RPC_URL` 预期 skip） |
 | 前端生产构建 | `pnpm frontend:build` | ✅ Next 16.3.6（Turbopack）编译通过，TypeScript 严格检查通过，7 个页面生成（含 `/`、`/vault`、`/prizes`、`/account`、`/draw/[drawId]`） |
 
 合约测试套件明细（来自 `forge test` 实跑输出）：
@@ -47,6 +47,7 @@
 | `ObservationTwabController.t.sol` | 9 | 时间加权、历史点查询、环形覆盖二分、仅 vault 可写 |
 | `AaveYieldVault.t.sol` | 7 | 适配器 roundtrip、计息均摊、通胀攻击防护、市场校验 |
 | `Invariants.t.sol` | 2 | fuzz（256 runs/用例）：零损失 + 份额守恒 |
+| `InvariantsHandler.t.sol` | 6 | handler 状态机 fuzz（256 runs/用例）：3 条不变量 × Simple/Observation 两种 TWAB 实现，含 TWAB 历史只读（已 mutator 校验非空） |
 | 其余（SimpleTwab / PrizeVault / TwabControllerBehavior 等） | 13 | 单测行为覆盖 |
 
 ---
@@ -72,7 +73,7 @@ Foundry 工程（Solidity 0.8.24，不在 pnpm workspace 内），M0 完整闭�
 
 1. **零损失**：`PrizeVault.totalAssets() >= totalSupply()` —— 有 fuzz 覆盖。
 2. **份额守恒**：`TwabController.totalSupply() == PrizeVault.totalSupply()` —— 有 fuzz 覆盖。
-3. **TWAB 只读追溯**：`awardDraw` 后存取款不改变历史 draw 的中奖结果 —— ⚠️ **仅 E2E 抽检，无自动化 fuzz 覆盖**（见缺口 G1）。
+3. **TWAB 只读追溯**：`awardDraw` 后存取款不改变历史 draw 的中奖结果 —— ✅ **有 handler 状态机 fuzz 覆盖**（[InvariantsHandler.t.sol](../contracts/test/InvariantsHandler.t.sol)，256 runs × 两种 TWAB 实现；已 mutator 校验非空，G1 关闭）。
 
 ### 3.2 frontend
 
@@ -117,7 +118,9 @@ Next.js 16（App Router, Turbopack）+ React 19 + TS strict + Tailwind v4，Web3
 | 0.2.5.1 | `b9b3e15` | 修复清算定价未归一化 token 小数位数 |
 | 0.3.1 | `8a8873a` | 接入 Base Sepolia 真实收益源：AaveYieldVault 适配器 + StataToken 主路径 + ADR-0005 + ForkStataYield 测试 |
 | 0.3.2–0.3.2.3 | `d22ff8f`…`dfb5c0d` | 未知链 env 解析部署地址 + 修复 eth_getLogs 区块范围超限 + 清理临时 fork 配置 |
-| **0.4.1** | **`d5ff32f`** | **RngRelay 合约集成 Chainlink VRF v2.5 随机数开奖**（当前最新） |
+| 0.4.1 | `d5ff32f` | RngRelay 合约集成 Chainlink VRF v2.5 随机数开奖 |
+| 0.4.2 | `5129e5d` | 添加项目状态快照文档并更新 README 链接 |
+| **0.4.3** | **`0d8d896`** | **新增 handler 状态机不变量 fuzz 测试（P0-1）并更新相关配置文档**（当前最新） |
 
 分支：`main`（当前）、`v0.2.6`、`v0.3.2`。
 
@@ -141,12 +144,12 @@ Next.js 16（App Router, Turbopack）+ React 19 + TS strict + Tailwind v4，Web3
 
 | 编号 | 缺口 | 优先级 | 说明 |
 |------|------|--------|------|
-| **G1** | 不变量 3（TWAB 只读追溯）无自动化 fuzz | 🔴 高 | [Invariants.t.sol](../contracts/test/Invariants.t.sol) 只覆盖零损失与份额守恒，且是 fuzz 单测形态而非状态机 handler fuzz；`ObservationTwabController` 未纳入不变量套件。金融合约核心安全项，[contracts/ARCHITECTURE.md](../contracts/ARCHITECTURE.md) 自身标记"待补" |
+| **G1** | 不变量 3（TWAB 只读追溯）无自动化 fuzz | ✅ 已修复（P0-1） | 新增 [InvariantsHandler.t.sol](../contracts/test/InvariantsHandler.t.sol) handler 状态机 fuzz：3 条不变量 × Simple/Observation 双实现各 256 runs，已 mutator 校验非空；[contracts/ARCHITECTURE.md](../contracts/ARCHITECTURE.md) "待补"已更新 |
 | **G2** | keeper 未实现 | 🔴 高 | 测试网无人值守则不会自动开奖/清算，"测试网运行"不成立 |
 | **G3** | M0 集成"测试网运行"无落地证据 | 🔴 高 | 路径 D（真实 Base Sepolia）只有 runbook；`DEPLOYMENTS[84532]` 未回填；[manual-e2e 执行记录表](./testing/manual-e2e-v2.1.md) 为空；真实 VRF 回调未验证 |
 | **G4** | subgraph 未实现 | 🟠 中高 | 前端历史数据靠 `getContractEvents`，仅 anvil 可用；测试网/主网必然再撞 eth_getLogs 区块范围限制（0.3.2.2 已修过一次） |
 | **G5** | 无 CI | 🟡 中 | 无自动化测试/构建/lint 防回归 |
-| **G6** | 文档漂移 | 🟡 中 | [overview.md](./architecture/overview.md) 仍写"不做 VRF""M0 为 MockERC4626"，与 0.4.1 实际不符；[docs/README.md](./README.md) 的 ADR 索引漏了 ADR-0005 |
+| **G6** | 文档漂移 | ✅ 已修复（P0-2） | [overview.md](./architecture/overview.md) 已更新为 VRF 已集成 + 收益源三档回退；[docs/README.md](./README.md) ADR 索引已含 ADR-0005；全仓 grep 无"不做 VRF"残留矛盾 |
 | **G7** | M1/M2/M3 未开始 | — | 审计、主网上线（M1）；多资产/多 vault/Claimer/自动派奖（M2）；无许可 vault factory + PFDA（M3）。见 PRD 第 11 节 |
 
 ---
@@ -159,8 +162,8 @@ Next.js 16（App Router, Turbopack）+ React 19 + TS strict + Tailwind v4，Web3
 
 | # | 任务 | 验收标准 |
 |---|------|----------|
-| P0-1 | 不变量 3 fuzz + 真正的状态机 handler fuzz | 新增 `StdInvariant` handler 测试，随机序列 deposit/redeem/mint/transfer/awardDraw/claim；断言三条不变量恒成立，重点：awardDraw 后再存取款，历史 draw 的 `getClaimableAmount` 不变；`ObservationTwabController` 纳入套件；默认 256 runs 通过 |
-| P0-2 | 修正文档漂移 | [overview.md](./architecture/overview.md) 更新为 VRF 已集成、收益源三档回退；[docs/README.md](./README.md) ADR 索引补 ADR-0005；grep 全仓无"不做 VRF"残留矛盾 |
+| ✅ P0-1 | 不变量 3 fuzz + 真正的状态机 handler fuzz | 已完成：新增 `InvariantsHandler.t.sol` handler 测试，3 条不变量 × Simple/Observation 双实现各 256 runs 通过，已 mutator 校验非空 |
+| ✅ P0-2 | 修正文档漂移 | 已完成：[overview.md](./architecture/overview.md) 更新为 VRF 已集成 + 收益源三档回退；[docs/README.md](./README.md) ADR 索引已含 ADR-0005；grep 全仓无"不做 VRF"残留矛盾 |
 | P0-3 | 建立 CI 流水线 | `.github/workflows/ci.yml`：`forge build/test`、ABI 生成物无 diff 校验、`frontend:build`、`keeper:build`、`forge fmt --check`；PR 必须全绿 |
 
 ### P1 · M0 集成落地——真实测试网跑通（1 天，需测试网资源）
