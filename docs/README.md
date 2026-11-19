@@ -12,6 +12,7 @@
 | ABI/地址/事件如何在模块间共享 | [architecture/module-contracts.md](./architecture/module-contracts.md) |
 | 本地链部署、地址与环境变量 | [architecture/deployment.md](./architecture/deployment.md) |
 | 本地端到端手工联调怎么做（存/取/清算/开奖/领奖） | [testing/manual-e2e.md](./testing/manual-e2e.md) |
+| 项目当前进度、硬证据、缺口与下一步规划（时间点快照） | [project-status.md](./project-status.md) |
 | 不可逆决策的来龙去脉 | [decisions/](./decisions/) |
 
 ## 模块级文档（就近存放）
@@ -30,3 +31,4 @@
 | [ADR-0002](./decisions/ADR-0002-foundry-solc.md) | Foundry + Solidity 0.8.24 + OZ v5 | 已接受 |
 | [ADR-0003](./decisions/ADR-0003-keeper-injected-rng-over-pfda.md) | M0 白名单 keeper 注入随机数，不做 PFDA/VRF | 已废弃 |
 | [ADR-0004](./decisions/ADR-0004-single-asset-usdc.md) | M0 单资产 USDC + 单一奖币 | 已接受 |
+| [ADR-0005](./decisions/ADR-0005-yield-source-stata-first.md) | 收益源 StataToken 优先、自研回退 | 已接受 |
