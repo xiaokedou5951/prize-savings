@@ -14,9 +14,12 @@
 #     注意：Solidity 合约已拆分到独立仓库 smartcontractkit/chainlink-evm，
 #     不再是 smartcontractkit/chainlink monorepo（后者无 contracts/ 顶层目录）；
 #     且该仓库的 tag 命名为 contracts-v<ver>，不是 v<ver>。
+#     用 `chainlink=` 前缀指定安装到 lib/chainlink/，与 remappings.txt 的
+#     `@chainlink/contracts/=lib/chainlink/contracts/` 对齐（forge 默认会以仓库名
+#     chainlink-evm 作为目录名，会导致源码找不到）。
 set -euo pipefail
 cd "$(dirname "$0")"
 
 forge install foundry-rs/forge-std@v1.9.6 --no-git
 forge install OpenZeppelin/openzeppelin-contracts@v5.0.0 --no-git
-forge install smartcontractkit/chainlink-evm@contracts-v1.5.0 --no-git
+forge install chainlink=smartcontractkit/chainlink-evm@contracts-v1.5.0 --no-git

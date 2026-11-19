@@ -109,7 +109,7 @@ Next.js 16（App Router, Turbopack）+ React 19 + TS strict + Tailwind v4，Web3
 - **frontend**：node 22 + pnpm 10.33.0 → `pnpm install --frozen-lockfile` → `pnpm frontend:build`。
 - **keeper**：同上 → `pnpm keeper:build`。
 
-依赖安装的单一事实源是 [contracts/install-deps.sh](../contracts/install-deps.sh)，钉住 `forge-std@v1.9.6` / `openzeppelin-contracts@v5.0.0` / `chainlink-evm@contracts-v1.5.0`（Chainlink 已将 Solidity 合约拆分到独立仓库 `smartcontractkit/chainlink-evm`，原 `smartcontractkit/chainlink` v2.x 无 `contracts/` 目录；该仓库 tag 命名为 `contracts-v<ver>`，`contracts-v1.5.0` 即 @chainlink/contracts 1.5.0，commit `86aa5a1d`），解决干净检出后 `contracts/lib/`（已 gitignore）缺失导致无法编译的可复现性缺口。无需任何密钥：fork 测试缺 `BASE_RPC_URL` 自动 skip，前端 build 有 env 兜底。
+依赖安装的单一事实源是 [contracts/install-deps.sh](../contracts/install-deps.sh)，钉住 `forge-std@v1.9.6` / `openzeppelin-contracts@v5.0.0` / `chainlink=smartcontractkit/chainlink-evm@contracts-v1.5.0`（Chainlink 已将 Solidity 合约拆分到独立仓库 `smartcontractkit/chainlink-evm`，原 `smartcontractkit/chainlink` v2.x 无 `contracts/` 目录；该仓库 tag 命名为 `contracts-v<ver>`，`contracts-v1.5.0` 即 @chainlink/contracts 1.5.0，commit `86aa5a1d`；用 `chainlink=` 前缀装到 `lib/chainlink/`，与 `remappings.txt` 的 `@chainlink/contracts/=lib/chainlink/contracts/` 对齐），解决干净检出后 `contracts/lib/`（已 gitignore）缺失导致无法编译的可复现性缺口。无需任何密钥：fork 测试缺 `BASE_RPC_URL` 自动 skip，前端 build 有 env 兜底。
 
 > 注意："PR 必须全绿"的分支保护规则（Settings → Branches → Require status checks to pass before merging）是 GitHub 仓库**设置项**，不在 workflow 文件内，需在仓库后台手动开启。
 
